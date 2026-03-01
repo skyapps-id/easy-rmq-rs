@@ -13,6 +13,8 @@ Rust AMQP library with connection pool, publisher, subscriber, and dependency in
 - **Single Active Consumer**: Ensure only one consumer processes messages at a time
 - **Prefetch Control**: AMQP prefetch (QoS) configuration
 - **Parallel Processing**: Configurable worker concurrency with async/blocking spawn
+- **Middleware**: Custom middleware for logging, metrics, and distributed tracing
+- **Distributed Tracing**: Built-in trace ID generation with OpenTelemetry support
 - **Dependency Injection**: Support for trait-based DI pattern
 - **Type Safe**: Strong error handling with thiserror
 - **Async**: Full async support using tokio
@@ -365,6 +367,65 @@ WorkerBuilder::new(ExchangeKind::Direct)
 
 ⚠️ **Important:** `.concurrency()` requires `.parallelize()` to be set
 
+### Middleware
+
+Add middleware for logging, metrics, and distributed tracing:
+
+```rust
+use easy_rmq::{WorkerBuilder, SubscriberRegistry};
+use lapin::ExchangeKind;
+
+// Define middleware functions
+pub fn logging(_payload: &[u8], result: &Result<()>) -> Result<()> {
+    match result {
+        Ok(_) => tracing::info!("✓ Message processed successfully"),
+        Err(e) => tracing::error!("✗ Message processing failed: {:?}", e),
+    }
+    Ok(())
+}
+
+pub fn metrics(_payload: &[u8], result: &Result<()>) -> Result<()> {
+    static SUCCESS_COUNT: std::sync::atomic::AtomicU64 = 
+        std::sync::atomic::AtomicU64::new(0);
+    
+    match result {
+        Ok(_) => {
+            let count = SUCCESS_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            tracing::info!("📊 Metrics: {} messages processed", count + 1);
+        }
+        Err(_) => tracing::warn!("✗ Message failed"),
+    }
+    Ok(())
+}
+
+// Register with middleware
+let worker = SubscriberRegistry::new()
+    .register({
+        let pool = pool.clone();
+        move |_count| {
+            WorkerBuilder::new(ExchangeKind::Direct)
+                .pool(pool)
+                .with_exchange("orders")
+                .queue("order.process")
+                .middleware(logging)    // Add logging middleware
+                .middleware(metrics)     // Add metrics middleware
+                .build(handler)
+        }
+    });
+
+worker.run().await?;
+```
+
+**Middleware execution order:**
+1. `before()` - Called before handler (for timing, etc.)
+2. Handler function executed
+3. `after()` - Called after handler (for logging, metrics, etc.)
+
+**Built-in middleware available:**
+- `examples/common/middleware::logging` - Log message processing
+- `examples/common/middleware::metrics` - Track execution metrics with timing
+- `examples/common/middleware::tracing` - Extract and log trace IDs
+
 ### Exchange Types Detail
 
 **Direct Exchange** - Queue name auto-formatted with `.job` suffix:
@@ -404,6 +465,133 @@ WorkerBuilder::new(ExchangeKind::Fanout)
 // Binding: queue_bind("notification_q", "events", "")
 ```
 
+## Distributed Tracing
+
+Built-in support for distributed tracing with automatic or custom trace ID generation, perfect for tracking message flows through your system.
+
+### Publisher with Trace ID
+
+```rust
+use easy_rmq::AmqpClient;
+
+let client = AmqpClient::new("amqp://guest:guest@localhost:5672".to_string(), 10)?;
+
+// Option 1: Auto-generate trace ID (recommended for most cases)
+client.publisher()
+    .with_auto_trace_id()
+    .publish_text("order.created", "Order data")
+    .await?;
+
+// Option 2: Use custom trace ID (e.g., from OpenTelemetry)
+client.publisher()
+    .with_trace_id("trace-from-otel-123".to_string())
+    .publish_text("order.created", "Order data")
+    .await?;
+
+// Option 3: Generate standalone trace ID
+use easy_rmq::generate_trace_id;
+let trace_id = generate_trace_id();
+client.publisher()
+    .with_trace_id(trace_id)
+    .publish_text("order.created", "Order data")
+    .await?;
+```
+
+### Subscriber: Extract Trace ID
+
+The subscriber automatically stores message headers in thread-local storage, accessible via `easy_rmq::get_headers()`:
+
+```rust
+use easy_rmq::Result;
+
+// In your handler or middleware
+pub fn extract_trace_id() -> Option<String> {
+    easy_rmq::get_headers()
+        .and_then(|h| h.inner().get("x-trace-id").cloned())
+        .and_then(|v| match v {
+            lapin::types::AMQPValue::LongString(s) => Some(s.to_string()),
+            lapin::types::AMQPValue::ShortString(s) => Some(s.to_string()),
+            _ => None,
+        })
+}
+
+fn handle_event(data: Vec<u8>) -> Result<()> {
+    let trace_id = extract_trace_id().unwrap_or_else(|| "unknown".to_string());
+    tracing::info!("Processing message - trace-id: {}", trace_id);
+    
+    // Process message...
+    Ok(())
+}
+```
+
+### Middleware: Automatic Trace ID Logging
+
+Use the built-in `tracing` middleware for automatic trace ID extraction and logging:
+
+```rust
+use easy_rmq::{WorkerBuilder, SubscriberRegistry};
+use lapin::ExchangeKind;
+
+// Add tracing middleware
+let worker = SubscriberRegistry::new()
+    .register({
+        let pool = pool.clone();
+        move |_count| {
+            WorkerBuilder::new(ExchangeKind::Direct)
+                .pool(pool)
+                .with_exchange("orders")
+                .queue("order.process")
+                .middleware(common::middleware::tracing)  // Auto-log trace IDs
+                .build(handler)
+        }
+    });
+```
+
+**Sample output:**
+```
+INFO Message processed - trace-id: 19ca9a5f5e1-5e148b1f5008b7d8
+WARN Message failed - trace-id: 19ca9a5f5e1-5e148b1f5008b7d8 | error: ...
+```
+
+### OpenTelemetry Integration
+
+For production distributed tracing with OpenTelemetry:
+
+```rust
+use opentelemetry::trace::TraceContextExt;
+
+// Get trace ID from current OTel context
+let context = opentelemetry::Context::current();
+let span = context.span();
+let trace_id = span.span_context().trace_id().to_string();
+
+// Pass trace ID through message pipeline
+client.publisher()
+    .with_trace_id(trace_id)
+    .publish_text("order.created", payload)
+    .await?;
+
+// Or auto-generate when no OTel context available
+client.publisher()
+    .with_auto_trace_id()
+    .publish_text("order.created", payload)
+    .await?;
+```
+
+**Benefits:**
+- ✅ Track messages across services
+- ✅ Correlate logs with trace IDs
+- ✅ Debug distributed systems
+- ✅ Monitor message flows
+- ✅ OTel-compatible
+
+**Trace ID format:** `{timestamp_hex}-{random_hex}` (e.g., `19ca9a5f5e1-5e148b1f5008b7d8`)
+
+**See also:**
+- `examples/otel_integration.rs` - Complete OTel integration example
+- `examples/trace_id_generator.rs` - Trace ID generation demo
+- `examples/common/middleware.rs` - Built-in middleware implementations
+
 ## Dependency Injection
 
 This library supports dependency injection using traits:
@@ -435,19 +623,37 @@ let order_service = OrderService::new(publisher);
 
 ## Examples
 
-See `examples/` folder for usage examples:
-- `publisher.rs` - Publisher with various exchange types
-- `subscriber.rs` - Multi-worker with single active consumer, retry, prefetch, concurrency, and parallelize
-- `single_active_consumer.rs` - Single active consumer demonstration
+See `examples/` folder for complete usage examples:
 
-Run examples:
+### Core Examples
+- **`publisher.rs`** - Publisher with auto trace ID generation
+- **`subscriber.rs`** - Multi-worker with middleware, retry, prefetch, concurrency, and SAC
+- **`single_active_consumer.rs`** - Single active consumer demonstration
+
+### Distributed Tracing Examples
+- **`otel_integration.rs`** - OpenTelemetry integration patterns
+- **`trace_id_generator.rs`** - Standalone trace ID generation demo
+
+### Quick Start
 ```bash
 # Terminal 1 - Start subscriber first
 cargo run --example subscriber
 
 # Terminal 2 - Then publisher
 cargo run --example publisher
+
+# Run OTel integration example
+cargo run --example otel_integration
+
+# Generate trace IDs
+cargo run --example trace_id_generator
 ```
+
+### Common Middleware
+Located in `examples/common/middleware.rs`:
+- `logging` - Log message processing results
+- `metrics` - Track success/error counts with execution time
+- `tracing` - Extract and log trace IDs from message headers
 
 ## Testing
 

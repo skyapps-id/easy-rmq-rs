@@ -510,6 +510,8 @@ impl Subscriber {
                     let middlewares = middlewares.clone();
 
                     let process_future = async move {
+                        crate::middleware::set_headers(headers.clone());
+                        
                         let handler_result = handler_clone(data.clone());
 
                         for middleware in &middlewares {

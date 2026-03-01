@@ -22,14 +22,19 @@ async fn main() -> Result<()> {
         });
 
         println!("📦 [Orders] Sending: {}", order);
-        pub1.publish_text("order.process", &order.to_string()).await?;
+        
+        // With custom trace ID (from OTel for example)
+        pub1.clone()
+            .with_trace_id("trace-from-otel-123".to_string())
+            .publish_text("order.process", &order.to_string()).await?;
+        
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
     // Publisher 2 - stock (Direct)
     let pub2 = client.publisher().with_exchange("stock.events.v1");
 
-    for i in 1..=10 {
+    for i in 1..=1 {
         let stock = serde_json::json!({
             "id": format!("P-{:04}", i),
             "qty": 1,
@@ -38,7 +43,11 @@ async fn main() -> Result<()> {
         });
 
         println!("📦 [Stock] Sending: {}", stock);
-        pub2.publish_text("stock.event", &stock.to_string()).await?;
+        
+        pub2.clone()
+            .with_auto_trace_id()
+            .publish_text("stock.event", &stock.to_string()).await?;
+        
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
@@ -55,7 +64,12 @@ async fn main() -> Result<()> {
         });
 
         println!("📧 [Logs] Sending: {}", log);
-        pub3.publish_text("order.api", &log.to_string()).await?;
+        
+        // Auto-generate trace ID
+        pub3.clone()
+            .with_auto_trace_id()
+            .publish_text("order.api", &log.to_string()).await?;
+        
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 

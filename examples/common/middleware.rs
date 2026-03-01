@@ -1,5 +1,17 @@
 use easy_rmq::Result;
 
+// Example: Extract trace-id from AMQP headers
+pub fn extract_trace_id(headers: &Option<lapin::types::FieldTable>) -> Option<String> {
+    headers
+        .as_ref()
+        .and_then(|h| h.inner().get("x-trace-id").cloned())
+        .and_then(|v| match v {
+            lapin::types::AMQPValue::LongString(s) => Some(s.to_string()),
+            lapin::types::AMQPValue::ShortString(s) => Some(s.to_string()),
+            _ => None,
+        })
+}
+
 // Example: Logging middleware (function-based)
 pub fn logging(_payload: &[u8], result: &Result<()>) -> Result<()> {
     match result {
@@ -44,9 +56,13 @@ pub fn metrics(_payload: &[u8], result: &Result<()>) -> Result<()> {
 
 // Example: Tracing middleware (function-based)
 pub fn tracing(_payload: &[u8], result: &Result<()>) -> Result<()> {
+    let trace_id = easy_rmq::get_headers()
+        .and_then(|h| extract_trace_id(&Some(h)))
+        .unwrap_or_else(|| "unknown".to_string());
+
     match result {
-        Ok(_) => tracing::debug!("Message processed"),
-        Err(e) => tracing::warn!("Message failed: {:?}", e),
+        Ok(_) => tracing::info!("🔍 Message processed - trace-id: {}", trace_id),
+        Err(e) => tracing::warn!("Message failed - trace-id: {} | error: {:?}", trace_id, e),
     }
     Ok(())
 }

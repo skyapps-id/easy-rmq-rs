@@ -1,4 +1,5 @@
 use crate::Result;
+use lapin::types::FieldTable;
 
 pub trait Middleware: Send + Sync {
     fn before(&self, payload: &[u8]) -> Result<()> {
@@ -23,9 +24,29 @@ mod timing {
     }
 }
 
+// Global thread_local for headers (shared across all)
+mod headers {
+    use lapin::types::FieldTable;
+    use std::cell::RefCell;
+
+    thread_local! {
+        pub(super) static HEADERS: RefCell<Option<FieldTable>> = const { RefCell::new(None) };
+    }
+}
+
 // Helper to get last execution time in microseconds
 pub fn get_execution_time_us() -> Option<u64> {
     timing::LAST_ELAPSED_US.with(|elapsed| *elapsed.borrow())
+}
+
+// Helper to get current message headers
+pub fn get_headers() -> Option<FieldTable> {
+    headers::HEADERS.with(|h| h.borrow().clone())
+}
+
+// Helper to set headers (called by subscriber before processing)
+pub(super) fn set_headers(headers: Option<FieldTable>) {
+    headers::HEADERS.with(|h| *h.borrow_mut() = headers);
 }
 
 // Implement Middleware for any function with matching signature
