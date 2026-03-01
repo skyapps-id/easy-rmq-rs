@@ -3,6 +3,9 @@ use lapin::ExchangeKind;
 use std::time::Duration;
 use tokio::signal;
 
+mod common;
+use common::middleware::{logging, metrics, tracing};
+
 fn handle_order_event(data: Vec<u8>) -> Result<()> {
     let msg = String::from_utf8_lossy(&data);
     let event: serde_json::Value = serde_json::from_str(&msg)?;
@@ -13,7 +16,10 @@ fn handle_order_event(data: Vec<u8>) -> Result<()> {
 
     let order_id = event["id"].as_str().unwrap_or("unknown");
     let total = event["total"].as_f64().unwrap_or(0.0);
-    println!("❌ [Order] Processing failed: {} | Total: ${}", order_id, total);
+    println!(
+        "❌ [Order] Processing failed: {} | Total: ${}",
+        order_id, total
+    );
     Err("Simulated processing error".into())
 }
 
@@ -61,6 +67,9 @@ async fn main() -> Result<()> {
                     .prefetch(10)
                     .concurrency(5)
                     .parallelize(tokio::task::spawn)
+                    .middleware(logging)
+                    .middleware(metrics)
+                    .middleware(tracing)
                     .build(handle_order_event)
             }
         })
@@ -76,6 +85,9 @@ async fn main() -> Result<()> {
                     .prefetch(1)
                     .concurrency(1)
                     .parallelize(tokio::task::spawn)
+                    .middleware(logging)
+                    .middleware(metrics)
+                    .middleware(tracing)
                     .build(handle_stock_event)
             }
         })
@@ -91,6 +103,9 @@ async fn main() -> Result<()> {
                     .prefetch(20)
                     .concurrency(10)
                     .parallelize(tokio::task::spawn)
+                    .middleware(logging)
+                    .middleware(metrics)
+                    .middleware(tracing)
                     .build(handle_log_event)
             }
         });

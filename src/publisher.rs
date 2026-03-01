@@ -1,7 +1,9 @@
-use lapin::{
-    options::*, BasicProperties,
+use crate::{
+    error::{AmqpError, Result},
+    pool::ChannelPool,
+    traits::AmqpPublisher,
 };
-use crate::{error::{Result, AmqpError}, traits::AmqpPublisher, pool::ChannelPool};
+use lapin::{BasicProperties, options::*};
 use std::sync::Arc;
 
 pub struct Publisher {
@@ -41,12 +43,9 @@ impl Publisher {
         self.publish(exchange, routing_key, &json).await
     }
 
-    pub async fn publish_text(
-        &self,
-        routing_key: &str,
-        payload: &str,
-    ) -> Result<()> {
-        self.publish(&self.exchange, routing_key, payload.as_bytes()).await
+    pub async fn publish_text(&self, routing_key: &str, payload: &str) -> Result<()> {
+        self.publish(&self.exchange, routing_key, payload.as_bytes())
+            .await
     }
 
     pub async fn publish_text_to(
@@ -55,18 +54,17 @@ impl Publisher {
         routing_key: &str,
         payload: &str,
     ) -> Result<()> {
-        self.publish(exchange, routing_key, payload.as_bytes()).await
+        self.publish(exchange, routing_key, payload.as_bytes())
+            .await
     }
 }
 
 #[async_trait::async_trait]
 impl AmqpPublisher for Publisher {
     async fn publish(&self, exchange: &str, routing_key: &str, payload: &[u8]) -> Result<()> {
-        
         let channel = self.channel_pool.get_channel().await?;
 
-        let props = BasicProperties::default()
-            .with_delivery_mode(2);
+        let props = BasicProperties::default().with_delivery_mode(2);
 
         channel
             .basic_publish(
@@ -76,8 +74,10 @@ impl AmqpPublisher for Publisher {
                 payload,
                 props,
             )
-            .await.map_err(AmqpError::ConnectionError)?
-            .await.map_err(AmqpError::ConnectionError)?;
+            .await
+            .map_err(AmqpError::ConnectionError)?
+            .await
+            .map_err(AmqpError::ConnectionError)?;
 
         Ok(())
     }

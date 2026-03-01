@@ -1,4 +1,4 @@
-use crate::{ChannelPool, HandlerFn, Result, Subscriber};
+use crate::{ChannelPool, HandlerFn, Result, Subscriber, middleware::Middleware};
 use lapin::ExchangeKind;
 use std::future::Future;
 use std::pin::Pin;
@@ -46,6 +46,7 @@ pub struct WorkerBuilderWithKind {
     concurrency: Option<u16>,
     spawn_fn: Option<SpawnFn>,
     single_active_consumer: bool,
+    middlewares: Vec<Arc<dyn Middleware>>,
 }
 
 impl WorkerBuilderWithKind {
@@ -71,6 +72,7 @@ impl WorkerBuilderWithKind {
             concurrency: None,
             spawn_fn: None,
             single_active_consumer: false,
+            middlewares: Vec::new(),
         }
     }
 
@@ -115,7 +117,10 @@ impl WorkerBuilderWithKind {
     where
         F: Fn(
                 Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>,
-            ) -> tokio::task::JoinHandle<Result<()>> + Send + Sync + 'static,
+            ) -> tokio::task::JoinHandle<Result<()>>
+            + Send
+            + Sync
+            + 'static,
     {
         self.spawn_fn = Some(Arc::new(spawn_fn));
         self
@@ -123,6 +128,14 @@ impl WorkerBuilderWithKind {
 
     pub fn single_active_consumer(mut self, enabled: bool) -> Self {
         self.single_active_consumer = enabled;
+        self
+    }
+
+    pub fn middleware<M>(mut self, middleware: M) -> Self
+    where
+        M: Middleware + 'static,
+    {
+        self.middlewares.push(Arc::new(middleware));
         self
     }
 
@@ -148,6 +161,7 @@ impl WorkerBuilderWithKind {
         let prefetch = self.prefetch;
         let concurrency = self.concurrency;
         let spawn_fn = self.spawn_fn;
+        let middlewares = self.middlewares;
 
         match self.exchange_kind {
             ExchangeKind::Direct => {
@@ -161,6 +175,7 @@ impl WorkerBuilderWithKind {
                         prefetch,
                         concurrency,
                         spawn_fn,
+                        middlewares,
                     },
                 }
             }
@@ -177,6 +192,7 @@ impl WorkerBuilderWithKind {
                         prefetch,
                         concurrency,
                         spawn_fn,
+                        middlewares,
                     },
                 }
             }
@@ -191,6 +207,7 @@ impl WorkerBuilderWithKind {
                         prefetch,
                         concurrency,
                         spawn_fn,
+                        middlewares,
                     },
                 }
             }
@@ -218,6 +235,7 @@ pub enum WorkerConfig {
         prefetch: u16,
         concurrency: Option<u16>,
         spawn_fn: Option<SpawnFn>,
+        middlewares: Vec<Arc<dyn Middleware>>,
     },
     Topic {
         routing_key: String,
@@ -227,6 +245,7 @@ pub enum WorkerConfig {
         prefetch: u16,
         concurrency: Option<u16>,
         spawn_fn: Option<SpawnFn>,
+        middlewares: Vec<Arc<dyn Middleware>>,
     },
     Fanout {
         queue: String,
@@ -235,6 +254,7 @@ pub enum WorkerConfig {
         prefetch: u16,
         concurrency: Option<u16>,
         spawn_fn: Option<SpawnFn>,
+        middlewares: Vec<Arc<dyn Middleware>>,
     },
 }
 
@@ -243,6 +263,7 @@ pub struct DirectWorkerBuilder {
     channel_pool: Arc<ChannelPool>,
     queue: String,
     single_active_consumer: bool,
+    middlewares: Vec<Arc<dyn Middleware>>,
 }
 
 impl DirectWorkerBuilder {
@@ -252,6 +273,7 @@ impl DirectWorkerBuilder {
             channel_pool,
             queue: String::new(),
             single_active_consumer: false,
+            middlewares: Vec::new(),
         }
     }
     pub fn with_exchange(mut self, exchange: impl Into<String>) -> Self {
@@ -266,6 +288,14 @@ impl DirectWorkerBuilder {
 
     pub fn single_active_consumer(mut self, enabled: bool) -> Self {
         self.single_active_consumer = enabled;
+        self
+    }
+
+    pub fn middleware<M>(mut self, middleware: M) -> Self
+    where
+        M: Middleware + 'static,
+    {
+        self.middlewares.push(Arc::new(middleware));
         self
     }
 
@@ -286,6 +316,7 @@ impl DirectWorkerBuilder {
                 prefetch: 1,
                 concurrency: None,
                 spawn_fn: None,
+                middlewares: self.middlewares,
             },
         }
     }
@@ -297,6 +328,7 @@ pub struct TopicWorkerBuilder {
     routing_key: String,
     queue: String,
     single_active_consumer: bool,
+    middlewares: Vec<Arc<dyn Middleware>>,
 }
 
 impl TopicWorkerBuilder {
@@ -307,6 +339,7 @@ impl TopicWorkerBuilder {
             routing_key: String::new(),
             queue: String::new(),
             single_active_consumer: false,
+            middlewares: Vec::new(),
         }
     }
     pub fn with_exchange(mut self, exchange: impl Into<String>) -> Self {
@@ -322,6 +355,14 @@ impl TopicWorkerBuilder {
 
     pub fn single_active_consumer(mut self, enabled: bool) -> Self {
         self.single_active_consumer = enabled;
+        self
+    }
+
+    pub fn middleware<M>(mut self, middleware: M) -> Self
+    where
+        M: Middleware + 'static,
+    {
+        self.middlewares.push(Arc::new(middleware));
         self
     }
 
@@ -343,6 +384,7 @@ impl TopicWorkerBuilder {
                 prefetch: 1,
                 concurrency: None,
                 spawn_fn: None,
+                middlewares: self.middlewares,
             },
         }
     }
@@ -353,6 +395,7 @@ pub struct FanoutWorkerBuilder {
     channel_pool: Arc<ChannelPool>,
     queue: String,
     single_active_consumer: bool,
+    middlewares: Vec<Arc<dyn Middleware>>,
 }
 
 impl FanoutWorkerBuilder {
@@ -362,6 +405,7 @@ impl FanoutWorkerBuilder {
             channel_pool,
             queue: String::new(),
             single_active_consumer: false,
+            middlewares: Vec::new(),
         }
     }
     pub fn with_exchange(mut self, exchange: impl Into<String>) -> Self {
@@ -376,6 +420,14 @@ impl FanoutWorkerBuilder {
 
     pub fn single_active_consumer(mut self, enabled: bool) -> Self {
         self.single_active_consumer = enabled;
+        self
+    }
+
+    pub fn middleware<M>(mut self, middleware: M) -> Self
+    where
+        M: Middleware + 'static,
+    {
+        self.middlewares.push(Arc::new(middleware));
         self
     }
 
@@ -396,6 +448,7 @@ impl FanoutWorkerBuilder {
                 prefetch: 1,
                 concurrency: None,
                 spawn_fn: None,
+                middlewares: self.middlewares,
             },
         }
     }
@@ -411,6 +464,7 @@ impl BuiltWorker {
                 prefetch,
                 concurrency,
                 spawn_fn,
+                middlewares,
             } => {
                 let subscriber = if let Some(rc) = retry_config {
                     self.subscriber.with_retry(rc.max_retries, rc.delay)
@@ -421,6 +475,7 @@ impl BuiltWorker {
                     .with_prefetch(prefetch)
                     .with_concurrency(concurrency)
                     .with_spawn_fn(spawn_fn)
+                    .with_middlewares(middlewares)
                     .direct(&queue)
                     .build(handler)
                     .await
@@ -433,6 +488,7 @@ impl BuiltWorker {
                 prefetch,
                 concurrency,
                 spawn_fn,
+                middlewares,
             } => {
                 let subscriber = if let Some(rc) = retry_config {
                     self.subscriber.with_retry(rc.max_retries, rc.delay)
@@ -443,6 +499,7 @@ impl BuiltWorker {
                     .with_prefetch(prefetch)
                     .with_concurrency(concurrency)
                     .with_spawn_fn(spawn_fn)
+                    .with_middlewares(middlewares)
                     .topic(&routing_key, &queue)
                     .build(handler)
                     .await
@@ -454,6 +511,7 @@ impl BuiltWorker {
                 prefetch,
                 concurrency,
                 spawn_fn,
+                middlewares,
             } => {
                 let subscriber = if let Some(rc) = retry_config {
                     self.subscriber.with_retry(rc.max_retries, rc.delay)
@@ -464,6 +522,7 @@ impl BuiltWorker {
                     .with_prefetch(prefetch)
                     .with_concurrency(concurrency)
                     .with_spawn_fn(spawn_fn)
+                    .with_middlewares(middlewares)
                     .fanout(&queue)
                     .build(handler)
                     .await

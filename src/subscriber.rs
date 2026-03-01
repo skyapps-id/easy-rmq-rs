@@ -1,5 +1,6 @@
 use crate::{
     error::{AmqpError, Result},
+    middleware::Middleware,
     pool::ChannelPool,
     worker::SpawnFn,
 };
@@ -20,6 +21,7 @@ pub struct Subscriber {
     concurrency: Option<u16>,
     spawn_fn: Option<SpawnFn>,
     single_active_consumer: bool,
+    middlewares: Vec<Arc<dyn Middleware>>,
 }
 
 pub struct DirectSubscribeBuilder {
@@ -60,6 +62,7 @@ impl Subscriber {
             concurrency: None,
             spawn_fn: None,
             single_active_consumer: false,
+            middlewares: Vec::new(),
         }
     }
 
@@ -96,6 +99,11 @@ impl Subscriber {
 
     pub fn with_single_active_consumer(mut self, single_active_consumer: bool) -> Self {
         self.single_active_consumer = single_active_consumer;
+        self
+    }
+
+    pub fn with_middlewares(mut self, middlewares: Vec<Arc<dyn Middleware>>) -> Self {
+        self.middlewares = middlewares;
         self
     }
 
@@ -211,26 +219,51 @@ impl Subscriber {
 
             let delay_ms = delay.as_millis() as u32;
 
-            self.ensure_binding(main_queue, &self.exchange, main_queue).await?;
+            self.ensure_binding(main_queue, &self.exchange, main_queue)
+                .await?;
 
             let mut retry_args = FieldTable::default();
-            retry_args.insert("x-dead-letter-exchange".into(), AMQPValue::LongString(self.exchange.clone().into()));
-            retry_args.insert("x-dead-letter-routing-key".into(), AMQPValue::LongString(main_queue.into()));
-            retry_args.insert("x-message-ttl".into(), AMQPValue::LongLongInt(delay_ms as i64));
+            retry_args.insert(
+                "x-dead-letter-exchange".into(),
+                AMQPValue::LongString(self.exchange.clone().into()),
+            );
+            retry_args.insert(
+                "x-dead-letter-routing-key".into(),
+                AMQPValue::LongString(main_queue.into()),
+            );
+            retry_args.insert(
+                "x-message-ttl".into(),
+                AMQPValue::LongLongInt(delay_ms as i64),
+            );
 
             let retry_queue_ok = match self.try_declare_queue(&retry_queue, retry_args).await {
                 Ok(_) => true,
-                Err(e) if e.to_string().contains("406") || e.to_string().contains("PRECONDITION_FAILED") => {
-                    tracing::warn!("⚠️  Retry queue '{}' already exists with different arguments", retry_queue);
+                Err(e)
+                    if e.to_string().contains("406")
+                        || e.to_string().contains("PRECONDITION_FAILED") =>
+                {
+                    tracing::warn!(
+                        "⚠️  Retry queue '{}' already exists with different arguments",
+                        retry_queue
+                    );
                     false
                 }
                 Err(e) => return Err(e),
             };
 
-            match self.try_declare_queue(&dlq_queue, FieldTable::default()).await {
+            match self
+                .try_declare_queue(&dlq_queue, FieldTable::default())
+                .await
+            {
                 Ok(_) => {}
-                Err(e) if e.to_string().contains("406") || e.to_string().contains("PRECONDITION_FAILED") => {
-                    tracing::warn!("⚠️  DLQ '{}' already exists with different arguments", dlq_queue);
+                Err(e)
+                    if e.to_string().contains("406")
+                        || e.to_string().contains("PRECONDITION_FAILED") =>
+                {
+                    tracing::warn!(
+                        "⚠️  DLQ '{}' already exists with different arguments",
+                        dlq_queue
+                    );
                 }
                 Err(e) => return Err(e),
             }
@@ -238,7 +271,10 @@ impl Subscriber {
             if retry_queue_ok {
                 tracing::info!("✓ Retry infrastructure created for '{}'", main_queue);
             } else {
-                tracing::warn!("⚠️  Using existing retry infrastructure for '{}' (may not work as expected)", main_queue);
+                tracing::warn!(
+                    "⚠️  Using existing retry infrastructure for '{}' (may not work as expected)",
+                    main_queue
+                );
             }
 
             Ok(Some(retry_queue))
@@ -275,16 +311,24 @@ impl Subscriber {
 
         if let Some(num_workers) = self.concurrency {
             if let Some(spawner) = &self.spawn_fn {
-                self.consume_parallel_workers(queue, handler, retry_queue, num_workers, spawner).await
+                self.consume_parallel_workers(queue, handler, retry_queue, num_workers, spawner)
+                    .await
             } else {
-                return Err(AmqpError::ChannelError("concurrency requires parallelize() to be set".to_string()));
+                return Err(AmqpError::ChannelError(
+                    "concurrency requires parallelize() to be set".to_string(),
+                ));
             }
         } else {
             self.consume_single(queue, handler, retry_queue).await
         }
     }
 
-    async fn consume_single<F>(&self, queue: &str, handler: F, retry_queue: Option<String>) -> Result<()>
+    async fn consume_single<F>(
+        &self,
+        queue: &str,
+        handler: F,
+        retry_queue: Option<String>,
+    ) -> Result<()>
     where
         F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
     {
@@ -307,10 +351,18 @@ impl Subscriber {
             .await
             .map_err(AmqpError::ConnectionError)?;
 
-        self.process_messages(consumer, handler, retry_queue, queue).await
+        self.process_messages(consumer, handler, retry_queue, queue)
+            .await
     }
 
-    async fn consume_parallel_workers<F>(&self, queue: &str, handler: F, retry_queue: Option<String>, num_workers: u16, spawner: &SpawnFn) -> Result<()>
+    async fn consume_parallel_workers<F>(
+        &self,
+        queue: &str,
+        handler: F,
+        retry_queue: Option<String>,
+        num_workers: u16,
+        spawner: &SpawnFn,
+    ) -> Result<()>
     where
         F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
     {
@@ -338,19 +390,25 @@ impl Subscriber {
 
         for handle in handles {
             match handle.await {
-                Ok(Ok(())) => {},
+                Ok(Ok(())) => {}
                 Ok(Err(e)) => return Err(e),
                 Err(e) => {
                     tracing::error!("Task join error: {:?}", e);
                     return Err(AmqpError::ChannelError(format!("Task join error: {}", e)));
-                },
+                }
             }
         }
 
         Ok(())
     }
 
-    async fn worker_loop<F>(subscriber: Subscriber, queue: &str, handler: Arc<F>, retry_queue: Option<String>, worker_id: u16) -> Result<()>
+    async fn worker_loop<F>(
+        subscriber: Subscriber,
+        queue: &str,
+        handler: Arc<F>,
+        retry_queue: Option<String>,
+        worker_id: u16,
+    ) -> Result<()>
     where
         F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
     {
@@ -363,10 +421,15 @@ impl Subscriber {
                 .map_err(AmqpError::ConnectionError)?;
         }
 
-        let consumer_tag = format!("{}-worker-{}-{}", queue, worker_id, std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos());
+        let consumer_tag = format!(
+            "{}-worker-{}-{}",
+            queue,
+            worker_id,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
 
         let consumer = channel
             .basic_consume(
@@ -379,21 +442,56 @@ impl Subscriber {
             .map_err(AmqpError::ConnectionError)?;
 
         let max_retries = subscriber.retry_max_retries.unwrap_or(0);
-        Self::process_messages_static(consumer, handler, retry_queue, subscriber.channel_pool.clone(), max_retries, queue, subscriber.spawn_fn.clone()).await
+        Self::process_messages_static(
+            consumer,
+            handler,
+            retry_queue,
+            subscriber.channel_pool.clone(),
+            max_retries,
+            queue,
+            subscriber.spawn_fn.clone(),
+            subscriber.middlewares.clone(),
+        )
+        .await
     }
 }
 
 impl Subscriber {
-    async fn process_messages<F>(&self, consumer: Consumer, handler: F, retry_queue: Option<String>, main_queue: &str) -> Result<()>
+    async fn process_messages<F>(
+        &self,
+        consumer: Consumer,
+        handler: F,
+        retry_queue: Option<String>,
+        main_queue: &str,
+    ) -> Result<()>
     where
         F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
     {
         let max_retries = self.retry_max_retries.unwrap_or(0);
         let handler = Arc::new(handler);
-        Self::process_messages_static(consumer, handler, retry_queue, self.channel_pool.clone(), max_retries, main_queue, self.spawn_fn.clone()).await
+        Self::process_messages_static(
+            consumer,
+            handler,
+            retry_queue,
+            self.channel_pool.clone(),
+            max_retries,
+            main_queue,
+            self.spawn_fn.clone(),
+            self.middlewares.clone(),
+        )
+        .await
     }
 
-    async fn process_messages_static<F>(mut consumer: Consumer, handler: Arc<F>, retry_queue: Option<String>, channel_pool: Arc<ChannelPool>, max_retries: u32, main_queue: &str, spawn_fn: Option<SpawnFn>) -> Result<()>
+    async fn process_messages_static<F>(
+        mut consumer: Consumer,
+        handler: Arc<F>,
+        retry_queue: Option<String>,
+        channel_pool: Arc<ChannelPool>,
+        max_retries: u32,
+        main_queue: &str,
+        spawn_fn: Option<SpawnFn>,
+        middlewares: Vec<Arc<dyn Middleware>>,
+    ) -> Result<()>
     where
         F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
     {
@@ -409,36 +507,44 @@ impl Subscriber {
                     let channel_pool_clone = channel_pool.clone();
                     let main_queue_clone = main_queue.to_string();
                     let handler_clone = Arc::clone(&handler);
+                    let middlewares = middlewares.clone();
 
                     let process_future = async move {
-                        match handler_clone(data) {
+                        let handler_result = handler_clone(data.clone());
+
+                        for middleware in &middlewares {
+                            let _ = middleware.before(&data);
+                        }
+
+                        match handler_result {
                             Ok(_) => {
                                 acker
                                     .ack(BasicAckOptions::default())
                                     .await
                                     .map_err(AmqpError::ConnectionError)?;
                             }
-                            Err(e) => {
+                            Err(ref e) => {
                                 tracing::error!("Handler error: {:?}", e);
 
                                 if let Some(ref retry_q) = retry_queue_clone {
                                     let retry_count = headers
                                         .and_then(|h| h.inner().get("x-retry-count").cloned())
-                                        .and_then(|v| {
-                                            match v {
-                                                AMQPValue::LongLongInt(n) => Some(n as u32),
-                                                AMQPValue::ShortShortInt(n) => Some(n as u32),
-                                                AMQPValue::ShortInt(n) => Some(n as u32),
-                                                AMQPValue::LongInt(n) => Some(n as u32),
-                                                _ => None,
-                                            }
+                                        .and_then(|v| match v {
+                                            AMQPValue::LongLongInt(n) => Some(n as u32),
+                                            AMQPValue::ShortShortInt(n) => Some(n as u32),
+                                            AMQPValue::ShortInt(n) => Some(n as u32),
+                                            AMQPValue::LongInt(n) => Some(n as u32),
+                                            _ => None,
                                         })
                                         .unwrap_or(0);
 
                                     if retry_count < max_retries {
                                         let channel = channel_pool_clone.get_channel().await?;
                                         let mut new_headers = FieldTable::default();
-                                        new_headers.insert("x-retry-count".into(), AMQPValue::LongLongInt((retry_count + 1) as i64));
+                                        new_headers.insert(
+                                            "x-retry-count".into(),
+                                            AMQPValue::LongLongInt((retry_count + 1) as i64),
+                                        );
 
                                         let publish_props = lapin::BasicProperties::default()
                                             .with_headers(new_headers)
@@ -455,7 +561,11 @@ impl Subscriber {
                                             .await
                                             .map_err(AmqpError::ConnectionError)?;
 
-                                        tracing::warn!("🔄 Message sent to retry queue (attempt {}/{})", retry_count + 1, max_retries);
+                                        tracing::warn!(
+                                            "🔄 Message sent to retry queue (attempt {}/{})",
+                                            retry_count + 1,
+                                            max_retries
+                                        );
 
                                         acker
                                             .ack(BasicAckOptions::default())
@@ -477,7 +587,12 @@ impl Subscriber {
                                             .await
                                             .map_err(AmqpError::ConnectionError)?;
 
-                                        tracing::error!("❌ Max retries exceeded ({}/{}), sent to DLQ: {}", retry_count, max_retries, dlq_queue);
+                                        tracing::error!(
+                                            "❌ Max retries exceeded ({}/{}), sent to DLQ: {}",
+                                            retry_count,
+                                            max_retries,
+                                            dlq_queue
+                                        );
 
                                         acker
                                             .ack(BasicAckOptions::default())
@@ -492,6 +607,11 @@ impl Subscriber {
                                 }
                             }
                         }
+
+                        for middleware in &middlewares {
+                            let _ = middleware.after(&data, &handler_result);
+                        }
+
                         Ok(())
                     };
 
