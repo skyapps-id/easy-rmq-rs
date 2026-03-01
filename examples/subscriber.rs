@@ -17,6 +17,15 @@ fn handle_order_event(data: Vec<u8>) -> Result<()> {
     Err(easy_rmq::AmqpError::ChannelError("Simulated processing error".to_string()))
 }
 
+fn handle_stock_event(data: Vec<u8>) -> Result<()> {
+    let msg = String::from_utf8_lossy(&data);
+    let event: serde_json::Value = serde_json::from_str(&msg)?;
+
+    println!("📦 [Stock] Event: {}", event);
+
+    Ok(())
+}
+
 fn handle_log_event(data: Vec<u8>) -> Result<()> {
     let msg = String::from_utf8_lossy(&data);
     let log: serde_json::Value = serde_json::from_str(&msg)?;
@@ -53,6 +62,21 @@ async fn main() -> Result<()> {
                     .concurrency(5)
                     .parallelize(tokio::task::spawn)
                     .build(handle_order_event)
+            }
+        })
+        .register({
+            let pool = pool.clone();
+            move |_count| {
+                WorkerBuilder::new(ExchangeKind::Direct)
+                    .pool(pool)
+                    .with_exchange("stock.events.v1")
+                    .queue("stock.event")
+                    .single_active_consumer(true)
+                    .retry(3, 5000)
+                    .prefetch(1)
+                    .concurrency(1)
+                    .parallelize(tokio::task::spawn)
+                    .build(handle_stock_event)
             }
         })
         .register({

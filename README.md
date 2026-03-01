@@ -10,6 +10,7 @@ Rust AMQP library with connection pool, publisher, subscriber, and dependency in
 - **Worker Registry**: Register and manage multiple workers with a clean pattern
 - **Auto Setup**: Automatically creates exchanges and queues
 - **Retry Mechanism**: Automatic retry with delay for failed messages
+- **Single Active Consumer**: Ensure only one consumer processes messages at a time
 - **Prefetch Control**: AMQP prefetch (QoS) configuration
 - **Parallel Processing**: Configurable worker concurrency with async/blocking spawn
 - **Dependency Injection**: Support for trait-based DI pattern
@@ -238,6 +239,56 @@ WorkerBuilder::new(ExchangeKind::Direct)
 - After max retries exceeded, sent to `{queue}.dlq` (Dead Letter Queue)
 - Retry count tracked in message headers: `x-retry-count`
 
+#### Single Active Consumer
+
+Enable single active consumer mode to ensure only one consumer processes messages from a queue at a time. This is crucial for scenarios requiring strict message ordering and avoiding race conditions, such as inventory management:
+
+```rust
+WorkerBuilder::new(ExchangeKind::Direct)
+    .pool(pool)
+    .with_exchange("stock.events.v1")
+    .queue("stock.event")
+    .single_active_consumer(true)
+    .prefetch(1)                  // ⚠️ Must be 1 to avoid race conditions
+    .concurrency(1)               // ⚠️ Must be 1 to avoid race conditions
+    .build(handler)
+```
+
+**Single Active Consumer behavior:**
+- Only one consumer actively receives messages from the queue
+- Other consumers remain standby and take over if the active consumer fails
+- Useful for:
+  - **Inventory/stock updates** - prevent overselling by processing sequentially
+  - **Payment processing** - ensure transactions are processed in order
+  - **Workflow orchestration** - maintain strict execution order
+  - High availability scenarios with automatic failover
+
+⚠️ **Important:** 
+- **MUST** set `.prefetch(1)` and `.concurrency(1)` to avoid race conditions
+- Messages MUST be processed sequentially (one at a time)
+- Cannot be changed on existing queues (delete queue first if needed)
+- Requires RabbitMQ 3.12+ with `single-active-consumer` plugin enabled
+- Use `rabbitmq-plugins enable rabbitmq_single_active_consumer` to enable
+
+**Why prefetch(1) and concurrency(1)?**
+- Single active consumer ensures only ONE consumer is active
+- If prefetch > 1: Single consumer buffers multiple messages, risking race conditions
+- If concurrency > 1: Single consumer runs parallel workers, breaking message ordering
+- Both MUST be 1 to guarantee sequential, ordered processing
+
+**Example: Stock Update Race Condition**
+```
+Without SAC (parallel processing):
+  Message 1: "Item A stock +10" → Consumer 1 reads stock: 50
+  Message 2: "Item A stock -5"  → Consumer 2 reads stock: 50
+  Consumer 1 writes: 60
+  Consumer 2 writes: 45  ❌ Wrong! Should be 55
+
+With SAC (sequential processing):
+  Message 1: "Item A stock +10" → reads: 50, writes: 60
+  Message 2: "Item A stock -5"  → reads: 60, writes: 55  ✓ Correct!
+```
+
 #### Prefetch (QoS) Control
 
 Control how many messages pre-fetched from broker:
@@ -300,16 +351,16 @@ WorkerBuilder::new(ExchangeKind::Direct)
 #### Complete Example with All Features
 
 ```rust
-WorkerBuilder::new(ExchangeKind::Topic)
+WorkerBuilder::new(ExchangeKind::Direct)
     .pool(pool)
-    .with_exchange("logs.v1")
-    .routing_key("order.*")
-    .queue("api_logs")
-    .retry(2, 10000)              // 2 retries, 10s delay
-    .prefetch(100)                // Buffer 100 messages
-    .concurrency(20)              // 20 parallel workers
+    .with_exchange("stock.events.v1")
+    .queue("stock.event")
+    .single_active_consumer(true) // Single active consumer mode
+    .retry(3, 5000)               // 3 retries, 5s delay
+    .prefetch(1)                  // Must be 1 with SAC
+    .concurrency(1)               // Must be 1 with SAC
     .parallelize(tokio::task::spawn)  // Async execution
-    .build(handle_log_event)
+    .build(handle_stock_event)
 ```
 
 ⚠️ **Important:** `.concurrency()` requires `.parallelize()` to be set
@@ -386,7 +437,8 @@ let order_service = OrderService::new(publisher);
 
 See `examples/` folder for usage examples:
 - `publisher.rs` - Publisher with various exchange types
-- `subscriber.rs` - Multi-worker with retry, prefetch, concurrency, and parallelize
+- `subscriber.rs` - Multi-worker with single active consumer, retry, prefetch, concurrency, and parallelize
+- `single_active_consumer.rs` - Single active consumer demonstration
 
 Run examples:
 ```bash

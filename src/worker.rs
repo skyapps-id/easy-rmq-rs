@@ -45,6 +45,7 @@ pub struct WorkerBuilderWithKind {
     prefetch: u16,
     concurrency: Option<u16>,
     spawn_fn: Option<SpawnFn>,
+    single_active_consumer: bool,
 }
 
 impl WorkerBuilderWithKind {
@@ -69,6 +70,7 @@ impl WorkerBuilderWithKind {
             prefetch: 1,
             concurrency: None,
             spawn_fn: None,
+            single_active_consumer: false,
         }
     }
 
@@ -119,14 +121,20 @@ impl WorkerBuilderWithKind {
         self
     }
 
+    pub fn single_active_consumer(mut self, enabled: bool) -> Self {
+        self.single_active_consumer = enabled;
+        self
+    }
+
     pub fn build<F>(self, handler: F) -> BuiltWorker
     where
         F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
     {
         let pool = self.channel_pool.expect("Pool must be set with .pool()");
 
-        let subscriber =
-            Subscriber::new(pool, self.exchange_kind.clone()).with_exchange(&self.exchange);
+        let subscriber = Subscriber::new(pool, self.exchange_kind.clone())
+            .with_exchange(&self.exchange)
+            .with_single_active_consumer(self.single_active_consumer);
 
         let retry_config = if self.retry_enabled {
             Some(RetryConfig {
@@ -234,6 +242,7 @@ pub struct DirectWorkerBuilder {
     exchange: String,
     channel_pool: Arc<ChannelPool>,
     queue: String,
+    single_active_consumer: bool,
 }
 
 impl DirectWorkerBuilder {
@@ -242,6 +251,7 @@ impl DirectWorkerBuilder {
             exchange: "amq.direct".to_string(),
             channel_pool,
             queue: String::new(),
+            single_active_consumer: false,
         }
     }
     pub fn with_exchange(mut self, exchange: impl Into<String>) -> Self {
@@ -254,12 +264,18 @@ impl DirectWorkerBuilder {
         self
     }
 
+    pub fn single_active_consumer(mut self, enabled: bool) -> Self {
+        self.single_active_consumer = enabled;
+        self
+    }
+
     pub fn build<F>(self, handler: F) -> BuiltWorker
     where
         F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
     {
         let subscriber = Subscriber::new(self.channel_pool, lapin::ExchangeKind::Direct)
-            .with_exchange(&self.exchange);
+            .with_exchange(&self.exchange)
+            .with_single_active_consumer(self.single_active_consumer);
 
         BuiltWorker {
             subscriber,
@@ -280,6 +296,7 @@ pub struct TopicWorkerBuilder {
     channel_pool: Arc<ChannelPool>,
     routing_key: String,
     queue: String,
+    single_active_consumer: bool,
 }
 
 impl TopicWorkerBuilder {
@@ -289,6 +306,7 @@ impl TopicWorkerBuilder {
             channel_pool,
             routing_key: String::new(),
             queue: String::new(),
+            single_active_consumer: false,
         }
     }
     pub fn with_exchange(mut self, exchange: impl Into<String>) -> Self {
@@ -302,12 +320,18 @@ impl TopicWorkerBuilder {
         self
     }
 
+    pub fn single_active_consumer(mut self, enabled: bool) -> Self {
+        self.single_active_consumer = enabled;
+        self
+    }
+
     pub fn build<F>(self, handler: F) -> BuiltWorker
     where
         F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
     {
         let subscriber = Subscriber::new(self.channel_pool, lapin::ExchangeKind::Topic)
-            .with_exchange(&self.exchange);
+            .with_exchange(&self.exchange)
+            .with_single_active_consumer(self.single_active_consumer);
 
         BuiltWorker {
             subscriber,
@@ -328,6 +352,7 @@ pub struct FanoutWorkerBuilder {
     exchange: String,
     channel_pool: Arc<ChannelPool>,
     queue: String,
+    single_active_consumer: bool,
 }
 
 impl FanoutWorkerBuilder {
@@ -336,6 +361,7 @@ impl FanoutWorkerBuilder {
             exchange: "amq.fanout".to_string(),
             channel_pool,
             queue: String::new(),
+            single_active_consumer: false,
         }
     }
     pub fn with_exchange(mut self, exchange: impl Into<String>) -> Self {
@@ -348,12 +374,18 @@ impl FanoutWorkerBuilder {
         self
     }
 
+    pub fn single_active_consumer(mut self, enabled: bool) -> Self {
+        self.single_active_consumer = enabled;
+        self
+    }
+
     pub fn build<F>(self, handler: F) -> BuiltWorker
     where
         F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
     {
         let subscriber = Subscriber::new(self.channel_pool, lapin::ExchangeKind::Fanout)
-            .with_exchange(&self.exchange);
+            .with_exchange(&self.exchange)
+            .with_single_active_consumer(self.single_active_consumer);
 
         BuiltWorker {
             subscriber,

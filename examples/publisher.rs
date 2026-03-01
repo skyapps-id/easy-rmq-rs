@@ -12,7 +12,7 @@ async fn main() -> Result<()> {
     // Publisher 1 - order events exchange (Direct)
     let pub1 = client.publisher().with_exchange("order.events.v1");
     
-    for i in 1..=1 {
+    for i in 1..=10 {
         let order = serde_json::json!({
             "id": format!("ORD-{:04}", i),
             "total": (i as f64) * 150.0,
@@ -26,8 +26,24 @@ async fn main() -> Result<()> {
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    // Publisher 2 - logs exchange (Topic)
-    let pub2 = client.publisher().with_exchange("logs.v1");
+    // Publisher 2 - stock (Direct)
+    let pub2 = client.publisher().with_exchange("stock.events.v1");
+
+    for i in 1..=10 {
+        let stock = serde_json::json!({
+            "id": format!("P-{:04}", i),
+            "qty": 1,
+            "action": "decrease",
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        });
+
+        println!("📦 [Stock] Sending: {}", stock);
+        pub2.publish_text("stock.event", &stock.to_string()).await?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // Publisher 3 - logs exchange (Topic)
+    let pub3 = client.publisher().with_exchange("logs.v1");
     
     for i in 1..=1 {
         let log = serde_json::json!({
@@ -39,9 +55,11 @@ async fn main() -> Result<()> {
         });
 
         println!("📧 [Logs] Sending: {}", log);
-        pub2.publish_text("order.api", &log.to_string()).await?;
+        pub3.publish_text("order.api", &log.to_string()).await?;
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
+
+
 
     println!("\n✓ All messages published!");
     

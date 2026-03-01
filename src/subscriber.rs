@@ -19,6 +19,7 @@ pub struct Subscriber {
     prefetch: Option<u16>,
     concurrency: Option<u16>,
     spawn_fn: Option<SpawnFn>,
+    single_active_consumer: bool,
 }
 
 pub struct DirectSubscribeBuilder {
@@ -58,6 +59,7 @@ impl Subscriber {
             prefetch: None,
             concurrency: None,
             spawn_fn: None,
+            single_active_consumer: false,
         }
     }
 
@@ -89,6 +91,11 @@ impl Subscriber {
 
     pub fn with_spawn_fn(mut self, spawn_fn: Option<SpawnFn>) -> Self {
         self.spawn_fn = spawn_fn;
+        self
+    }
+
+    pub fn with_single_active_consumer(mut self, single_active_consumer: bool) -> Self {
+        self.single_active_consumer = single_active_consumer;
         self
     }
 
@@ -166,8 +173,13 @@ impl Subscriber {
                 ..Default::default()
             };
 
+            let mut args = FieldTable::default();
+            if self.single_active_consumer {
+                args.insert("x-single-active-consumer".into(), AMQPValue::Boolean(true));
+            }
+
             channel
-                .queue_declare(queue, options, FieldTable::default())
+                .queue_declare(queue, options, args)
                 .await
                 .map_err(AmqpError::ConnectionError)?;
         }
