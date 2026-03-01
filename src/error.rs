@@ -18,4 +18,16 @@ pub enum AmqpError {
     ChannelError(String),
 }
 
+impl From<String> for AmqpError {
+    fn from(msg: String) -> Self {
+        AmqpError::ChannelError(msg)
+    }
+}
+
+impl From<&str> for AmqpError {
+    fn from(msg: &str) -> Self {
+        AmqpError::ChannelError(msg.to_string())
+    }
+}
+
 pub type Result<T> = std::result::Result<T, AmqpError>;

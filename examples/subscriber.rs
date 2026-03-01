@@ -14,7 +14,7 @@ fn handle_order_event(data: Vec<u8>) -> Result<()> {
     let order_id = event["id"].as_str().unwrap_or("unknown");
     let total = event["total"].as_f64().unwrap_or(0.0);
     println!("❌ [Order] Processing failed: {} | Total: ${}", order_id, total);
-    Err(easy_rmq::AmqpError::ChannelError("Simulated processing error".to_string()))
+    Err("Simulated processing error".into())
 }
 
 fn handle_stock_event(data: Vec<u8>) -> Result<()> {

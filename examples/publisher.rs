@@ -12,7 +12,7 @@ async fn main() -> Result<()> {
     // Publisher 1 - order events exchange (Direct)
     let pub1 = client.publisher().with_exchange("order.events.v1");
     
-    for i in 1..=10 {
+    for i in 1..=1 {
         let order = serde_json::json!({
             "id": format!("ORD-{:04}", i),
             "total": (i as f64) * 150.0,
