@@ -11,7 +11,7 @@ pub mod worker;
 pub use error::{AmqpError, Result};
 pub use middleware::{Middleware, get_execution_time_us, get_headers};
 pub use pool::{AmqpConnectionManager, AmqpPool, ChannelPool, create_pool};
-pub use publisher::{Publisher, PublisherWithTrace};
+pub use publisher::Publisher;
 pub use registry::{HandlerFn, SubscriberRegistry};
 pub use subscriber::Subscriber;
 pub use traits::AmqpPublisher;
