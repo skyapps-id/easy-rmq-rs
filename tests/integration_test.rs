@@ -49,8 +49,10 @@ fn test_single_active_consumer_direct_builder() {
     let pool = client.channel_pool();
 
     use easy_rmq::WorkerBuilder;
+    use lapin::ExchangeKind;
 
-    let _worker = WorkerBuilder::direct(pool)
+    let _worker = WorkerBuilder::new(ExchangeKind::Direct)
+        .pool(pool)
         .queue("test.queue")
         .single_active_consumer(true)
         .build(|_| Ok(()));
@@ -62,9 +64,12 @@ fn test_single_active_consumer_topic_builder() {
     let pool = client.channel_pool();
 
     use easy_rmq::WorkerBuilder;
+    use lapin::ExchangeKind;
 
-    let _worker = WorkerBuilder::topic(pool)
-        .queue("test.routing.key", "test.queue")
+    let _worker = WorkerBuilder::new(ExchangeKind::Topic)
+        .pool(pool)
+        .routing_key("test.routing.key")
+        .queue("test.queue")
         .single_active_consumer(true)
         .build(|_| Ok(()));
 }
@@ -75,8 +80,10 @@ fn test_single_active_consumer_fanout_builder() {
     let pool = client.channel_pool();
 
     use easy_rmq::WorkerBuilder;
+    use lapin::ExchangeKind;
 
-    let _worker = WorkerBuilder::fanout(pool)
+    let _worker = WorkerBuilder::new(ExchangeKind::Fanout)
+        .pool(pool)
         .queue("test.queue")
         .single_active_consumer(true)
         .build(|_| Ok(()));

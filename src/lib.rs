@@ -17,8 +17,7 @@ pub use subscriber::Subscriber;
 pub use traits::AmqpPublisher;
 pub use utils::generate_trace_id;
 pub use worker::{
-    BuiltWorker, DirectWorkerBuilder, FanoutWorkerBuilder, RetryConfig, SpawnFn,
-    TopicWorkerBuilder, WorkerBuilder,
+    BuiltWorker, RetryConfig, SpawnFn, WorkerBuilder,
 };
 
 use std::sync::Arc;
