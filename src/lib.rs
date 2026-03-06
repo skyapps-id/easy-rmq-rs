@@ -15,9 +15,9 @@ pub use publisher::Publisher;
 pub use registry::{HandlerFn, SubscriberRegistry};
 pub use subscriber::Subscriber;
 pub use traits::AmqpPublisher;
-pub use utils::generate_trace_id;
+pub use utils::{default_exchange_for_kind, generate_trace_id};
 pub use worker::{
-    BuiltWorker, RetryConfig, SpawnFn, WorkerBuilder,
+    BuiltWorker, SpawnFn, WorkerBuilder,
 };
 
 use std::sync::Arc;

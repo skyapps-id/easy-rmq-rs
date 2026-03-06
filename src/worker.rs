@@ -1,4 +1,4 @@
-use crate::{ChannelPool, HandlerFn, Result, Subscriber, middleware::Middleware};
+use crate::{ChannelPool, HandlerFn, Result, Subscriber, default_exchange_for_kind, middleware::Middleware};
 use lapin::ExchangeKind;
 use std::future::Future;
 use std::pin::Pin;
@@ -31,13 +31,7 @@ pub struct WorkerBuilder {
 
 impl WorkerBuilder {
     pub fn new(exchange_kind: ExchangeKind) -> Self {
-        let exchange = match exchange_kind {
-            ExchangeKind::Direct => "amq.direct",
-            ExchangeKind::Topic => "amq.topic",
-            ExchangeKind::Fanout => "amq.fanout",
-            _ => "amq.direct",
-        }
-        .to_string();
+        let exchange = default_exchange_for_kind(&exchange_kind);
 
         Self {
             exchange_kind,
@@ -129,189 +123,62 @@ impl WorkerBuilder {
             .with_exchange(&self.exchange)
             .with_single_active_consumer(self.single_active_consumer);
 
-        let retry_config = if self.retry_enabled {
-            Some(RetryConfig {
-                max_retries: self.max_retries,
-                delay: self.retry_delay,
-            })
-        } else {
-            None
-        };
-
-        let prefetch = self.prefetch;
-        let concurrency = self.concurrency;
-        let spawn_fn = self.spawn_fn;
-        let middlewares = self.middlewares;
-
-        match self.exchange_kind {
-            ExchangeKind::Direct => {
-                let queue = self.queue.expect("queue required for Direct");
-                BuiltWorker {
-                    subscriber,
-                    config: WorkerConfig::Direct {
-                        queue,
-                        handler: Box::new(handler),
-                        retry_config,
-                        prefetch,
-                        concurrency,
-                        spawn_fn,
-                        middlewares,
-                    },
-                }
-            }
-            ExchangeKind::Topic => {
-                let routing_key = self.routing_key.expect("routing_key required for Topic");
-                let queue = self.queue.expect("queue required for Topic");
-                BuiltWorker {
-                    subscriber,
-                    config: WorkerConfig::Topic {
-                        routing_key,
-                        queue,
-                        handler: Box::new(handler),
-                        retry_config,
-                        prefetch,
-                        concurrency,
-                        spawn_fn,
-                        middlewares,
-                    },
-                }
-            }
-            ExchangeKind::Fanout => {
-                let queue = self.queue.expect("queue required for Fanout");
-                BuiltWorker {
-                    subscriber,
-                    config: WorkerConfig::Fanout {
-                        queue,
-                        handler: Box::new(handler),
-                        retry_config,
-                        prefetch,
-                        concurrency,
-                        spawn_fn,
-                        middlewares,
-                    },
-                }
-            }
-            _ => panic!("Unsupported exchange kind"),
+        BuiltWorker {
+            exchange_kind: self.exchange_kind,
+            subscriber,
+            routing_key: self.routing_key,
+            queue: self.queue.expect("queue required"),
+            handler: Box::new(handler),
+            retry_max_retries: if self.retry_enabled { Some(self.max_retries) } else { None },
+            retry_delay: if self.retry_enabled { Some(self.retry_delay) } else { None },
+            prefetch: self.prefetch,
+            concurrency: self.concurrency,
+            spawn_fn: self.spawn_fn,
+            middlewares: self.middlewares,
         }
     }
 }
 
 pub struct BuiltWorker {
+    exchange_kind: ExchangeKind,
     subscriber: Subscriber,
-    config: WorkerConfig,
+    routing_key: Option<String>,
+    queue: String,
+    handler: HandlerFn,
+    retry_max_retries: Option<u32>,
+    retry_delay: Option<Duration>,
+    prefetch: u16,
+    concurrency: Option<u16>,
+    spawn_fn: Option<SpawnFn>,
+    middlewares: Vec<Arc<dyn Middleware>>,
 }
-
-#[derive(Clone)]
-pub struct RetryConfig {
-    pub max_retries: u32,
-    pub delay: Duration,
-}
-
-pub enum WorkerConfig {
-    Direct {
-        queue: String,
-        handler: HandlerFn,
-        retry_config: Option<RetryConfig>,
-        prefetch: u16,
-        concurrency: Option<u16>,
-        spawn_fn: Option<SpawnFn>,
-        middlewares: Vec<Arc<dyn Middleware>>,
-    },
-    Topic {
-        routing_key: String,
-        queue: String,
-        handler: HandlerFn,
-        retry_config: Option<RetryConfig>,
-        prefetch: u16,
-        concurrency: Option<u16>,
-        spawn_fn: Option<SpawnFn>,
-        middlewares: Vec<Arc<dyn Middleware>>,
-    },
-    Fanout {
-        queue: String,
-        handler: HandlerFn,
-        retry_config: Option<RetryConfig>,
-        prefetch: u16,
-        concurrency: Option<u16>,
-        spawn_fn: Option<SpawnFn>,
-        middlewares: Vec<Arc<dyn Middleware>>,
-    },
-}
-
 
 impl BuiltWorker {
     pub async fn run(self) -> Result<()> {
-        match self.config {
-            WorkerConfig::Direct {
-                queue,
-                handler,
-                retry_config,
-                prefetch,
-                concurrency,
-                spawn_fn,
-                middlewares,
-            } => {
-                let subscriber = if let Some(rc) = retry_config {
-                    self.subscriber.with_retry(rc.max_retries, rc.delay)
-                } else {
-                    self.subscriber
-                };
-                subscriber
-                    .with_prefetch(prefetch)
-                    .with_concurrency(concurrency)
-                    .with_spawn_fn(spawn_fn)
-                    .with_middlewares(middlewares)
-                    .direct(&queue)
-                    .build(handler)
-                    .await
+        let subscriber = if let (Some(max_retries), Some(delay)) = (self.retry_max_retries, self.retry_delay) {
+            self.subscriber.with_retry(max_retries, delay)
+        } else {
+            self.subscriber
+        };
+
+        let subscriber = subscriber
+            .with_prefetch(self.prefetch)
+            .with_concurrency(self.concurrency)
+            .with_spawn_fn(self.spawn_fn)
+            .with_middlewares(self.middlewares);
+
+        match self.exchange_kind {
+            ExchangeKind::Direct => {
+                subscriber.direct(&self.queue).build(self.handler).await
             }
-            WorkerConfig::Topic {
-                routing_key,
-                queue,
-                handler,
-                retry_config,
-                prefetch,
-                concurrency,
-                spawn_fn,
-                middlewares,
-            } => {
-                let subscriber = if let Some(rc) = retry_config {
-                    self.subscriber.with_retry(rc.max_retries, rc.delay)
-                } else {
-                    self.subscriber
-                };
-                subscriber
-                    .with_prefetch(prefetch)
-                    .with_concurrency(concurrency)
-                    .with_spawn_fn(spawn_fn)
-                    .with_middlewares(middlewares)
-                    .topic(&routing_key, &queue)
-                    .build(handler)
-                    .await
+            ExchangeKind::Topic => {
+                let routing_key = self.routing_key.expect("routing_key required for Topic");
+                subscriber.topic(&routing_key, &self.queue).build(self.handler).await
             }
-            WorkerConfig::Fanout {
-                queue,
-                handler,
-                retry_config,
-                prefetch,
-                concurrency,
-                spawn_fn,
-                middlewares,
-            } => {
-                let subscriber = if let Some(rc) = retry_config {
-                    self.subscriber.with_retry(rc.max_retries, rc.delay)
-                } else {
-                    self.subscriber
-                };
-                subscriber
-                    .with_prefetch(prefetch)
-                    .with_concurrency(concurrency)
-                    .with_spawn_fn(spawn_fn)
-                    .with_middlewares(middlewares)
-                    .fanout(&queue)
-                    .build(handler)
-                    .await
+            ExchangeKind::Fanout => {
+                subscriber.fanout(&self.queue).build(self.handler).await
             }
+            _ => panic!("Unsupported exchange kind"),
         }
     }
 }

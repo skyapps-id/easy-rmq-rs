@@ -1,4 +1,15 @@
+use lapin::ExchangeKind;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+pub fn default_exchange_for_kind(exchange_kind: &ExchangeKind) -> String {
+    match exchange_kind {
+        ExchangeKind::Direct => "amq.direct",
+        ExchangeKind::Topic => "amq.topic",
+        ExchangeKind::Fanout => "amq.fanout",
+        _ => "amq.direct",
+    }
+    .to_string()
+}
 
 /// Generate a unique trace ID
 /// Format: {timestamp_hex}-{random_hex}

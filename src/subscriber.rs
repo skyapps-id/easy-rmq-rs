@@ -1,4 +1,5 @@
 use crate::{
+    default_exchange_for_kind,
     error::{AmqpError, Result},
     middleware::Middleware,
     pool::ChannelPool,
@@ -24,32 +25,15 @@ pub struct Subscriber {
     middlewares: Vec<Arc<dyn Middleware>>,
 }
 
-pub struct DirectSubscribeBuilder {
+pub struct SubscribeBuilder {
     inner: Arc<Subscriber>,
     queue: String,
     routing_key: String,
-}
-
-pub struct TopicSubscribeBuilder {
-    inner: Arc<Subscriber>,
-    routing_key: String,
-    queue: String,
-}
-
-pub struct FanoutSubscribeBuilder {
-    inner: Arc<Subscriber>,
-    queue: String,
 }
 
 impl Subscriber {
     pub fn new(channel_pool: Arc<ChannelPool>, exchange_type: ExchangeKind) -> Self {
-        let exchange = match exchange_type {
-            ExchangeKind::Direct => "amq.direct",
-            ExchangeKind::Topic => "amq.topic",
-            ExchangeKind::Fanout => "amq.fanout",
-            _ => "amq.direct",
-        }
-        .to_string();
+        let exchange = default_exchange_for_kind(&exchange_type);
 
         Self {
             channel_pool,
@@ -107,10 +91,10 @@ impl Subscriber {
         self
     }
 
-    pub fn direct(self, routing_key: impl Into<String>) -> DirectSubscribeBuilder {
+    pub fn direct(self, routing_key: impl Into<String>) -> SubscribeBuilder {
         let routing_key = routing_key.into();
         let queue = format!("{}.job", routing_key);
-        DirectSubscribeBuilder {
+        SubscribeBuilder {
             inner: Arc::new(self),
             queue,
             routing_key,
@@ -121,17 +105,18 @@ impl Subscriber {
         self,
         routing_key: impl Into<String>,
         queue: impl Into<String>,
-    ) -> TopicSubscribeBuilder {
-        TopicSubscribeBuilder {
+    ) -> SubscribeBuilder {
+        SubscribeBuilder {
             inner: Arc::new(self),
             routing_key: routing_key.into(),
             queue: queue.into(),
         }
     }
 
-    pub fn fanout(self, queue: impl Into<String>) -> FanoutSubscribeBuilder {
-        FanoutSubscribeBuilder {
+    pub fn fanout(self, queue: impl Into<String>) -> SubscribeBuilder {
+        SubscribeBuilder {
             inner: Arc::new(self),
+            routing_key: String::new(),
             queue: queue.into(),
         }
     }
@@ -633,7 +618,7 @@ impl Subscriber {
     }
 }
 
-impl DirectSubscribeBuilder {
+impl SubscribeBuilder {
     pub async fn build<F>(self, handler: F) -> Result<()>
     where
         F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
@@ -642,34 +627,6 @@ impl DirectSubscribeBuilder {
         self.inner.ensure_queue(&self.queue).await?;
         self.inner
             .ensure_binding(&self.queue, &self.inner.exchange, &self.routing_key)
-            .await?;
-        self.inner.consume(&self.queue, handler).await
-    }
-}
-
-impl TopicSubscribeBuilder {
-    pub async fn build<F>(self, handler: F) -> Result<()>
-    where
-        F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
-    {
-        self.inner.ensure_exchange(&self.inner.exchange).await?;
-        self.inner.ensure_queue(&self.queue).await?;
-        self.inner
-            .ensure_binding(&self.queue, &self.inner.exchange, &self.routing_key)
-            .await?;
-        self.inner.consume(&self.queue, handler).await
-    }
-}
-
-impl FanoutSubscribeBuilder {
-    pub async fn build<F>(self, handler: F) -> Result<()>
-    where
-        F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
-    {
-        self.inner.ensure_exchange(&self.inner.exchange).await?;
-        self.inner.ensure_queue(&self.queue).await?;
-        self.inner
-            .ensure_binding(&self.queue, &self.inner.exchange, "")
             .await?;
         self.inner.consume(&self.queue, handler).await
     }
