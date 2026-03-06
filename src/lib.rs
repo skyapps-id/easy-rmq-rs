@@ -9,15 +9,17 @@ pub mod utils;
 pub mod worker;
 
 pub use error::{AmqpError, Result};
-pub use middleware::{Middleware, get_execution_time_us, get_headers};
-pub use pool::{AmqpConnectionManager, AmqpPool, ChannelPool, create_pool};
+pub use middleware::{
+    Middleware, get_execution_time_us, get_headers,
+};
+pub use pool::{ChannelPool, create_pool};
 pub use publisher::Publisher;
-pub use registry::{HandlerFn, SubscriberRegistry};
+pub use registry::SubscriberRegistry;
 pub use subscriber::Subscriber;
 pub use traits::AmqpPublisher;
 pub use utils::{default_exchange_for_kind, generate_trace_id};
 pub use worker::{
-    BuiltWorker, SpawnFn, WorkerBuilder,
+    BuiltWorker, Data, WorkerBuilder,
 };
 
 use std::sync::Arc;

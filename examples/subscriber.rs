@@ -6,8 +6,8 @@ use tokio::signal;
 mod common;
 use common::middleware::{logging, metrics, tracing};
 
-fn handle_order_event(data: Vec<u8>) -> Result<()> {
-    let msg = String::from_utf8_lossy(&data);
+fn handle_order_event(data: &[u8]) -> Result<()> {
+    let msg = String::from_utf8_lossy(data);
     let event: serde_json::Value = serde_json::from_str(&msg)?;
 
     println!("📦 [Order] Event: {}", event);
@@ -23,8 +23,8 @@ fn handle_order_event(data: Vec<u8>) -> Result<()> {
     Err("Simulated processing error".into())
 }
 
-fn handle_stock_event(data: Vec<u8>) -> Result<()> {
-    let msg = String::from_utf8_lossy(&data);
+fn handle_stock_event(data: &[u8]) -> Result<()> {
+    let msg = String::from_utf8_lossy(data);
     let event: serde_json::Value = serde_json::from_str(&msg)?;
 
     println!("📦 [Stock] Event: {}", event);
@@ -32,8 +32,8 @@ fn handle_stock_event(data: Vec<u8>) -> Result<()> {
     Ok(())
 }
 
-fn handle_log_event(data: Vec<u8>) -> Result<()> {
-    let msg = String::from_utf8_lossy(&data);
+fn handle_log_event(data: &[u8]) -> Result<()> {
+    let msg = String::from_utf8_lossy(data);
     let log: serde_json::Value = serde_json::from_str(&msg)?;
 
     let level = log["level"].as_str().unwrap_or("INFO");

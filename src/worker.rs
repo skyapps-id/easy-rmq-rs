@@ -1,9 +1,142 @@
-use crate::{ChannelPool, HandlerFn, Result, Subscriber, default_exchange_for_kind, middleware::Middleware};
+use crate::{ChannelPool, Result, Subscriber, default_exchange_for_kind, middleware::Middleware, registry::HandlerFn};
 use lapin::ExchangeKind;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+
+pub struct Data<T>(pub Arc<T>);
+
+impl<T> Data<T> {
+    pub fn new(data: T) -> Self {
+        Self(Arc::new(data))
+    }
+}
+
+impl<T> Clone for Data<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T> AsRef<T> for Data<T> {
+    fn as_ref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> std::ops::Deref for Data<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+pub struct WorkerBuilderWithData<T> {
+    builder: WorkerBuilder,
+    data: Arc<T>,
+}
+
+impl<T> WorkerBuilderWithData<T>
+where
+    T: Send + Sync + 'static + Clone,
+{
+    pub fn pool(mut self, pool: Arc<ChannelPool>) -> Self {
+        self.builder.channel_pool = Some(pool);
+        self
+    }
+
+    pub fn with_exchange(mut self, exchange: impl Into<String>) -> Self {
+        self.builder.exchange = exchange.into();
+        self
+    }
+
+    pub fn routing_key(mut self, routing_key: impl Into<String>) -> Self {
+        self.builder.routing_key = Some(routing_key.into());
+        self
+    }
+
+    pub fn queue(mut self, queue: impl Into<String>) -> Self {
+        self.builder.queue = Some(queue.into());
+        self
+    }
+
+    pub fn retry(mut self, max_retries: u32, delay_ms: u64) -> Self {
+        self.builder.retry_enabled = true;
+        self.builder.max_retries = max_retries;
+        self.builder.retry_delay = Duration::from_millis(delay_ms);
+        self
+    }
+
+    pub fn prefetch(mut self, count: u16) -> Self {
+        self.builder.prefetch = count;
+        self
+    }
+
+    pub fn concurrency(mut self, count: u16) -> Self {
+        self.builder.concurrency = Some(count);
+        self
+    }
+
+    pub fn parallelize<F>(mut self, spawn_fn: F) -> Self
+    where
+        F: Fn(
+                Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>,
+            ) -> tokio::task::JoinHandle<Result<()>>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.builder.spawn_fn = Some(Arc::new(spawn_fn));
+        self
+    }
+
+    pub fn single_active_consumer(mut self, enabled: bool) -> Self {
+        self.builder.single_active_consumer = enabled;
+        self
+    }
+
+    pub fn middleware<M>(mut self, middleware: M) -> Self
+    where
+        M: Middleware + 'static,
+    {
+        self.builder.middlewares.push(Arc::new(middleware));
+        self
+    }
+
+    pub fn build<F>(self, handler: F) -> BuiltWorker
+    where
+        F: Fn(Data<T>, &[u8]) -> Result<()> + Send + Sync + 'static,
+    {
+        let pool = self.builder.channel_pool.expect("Pool must be set with .pool()");
+
+        let data = self.data.clone();
+        let handler_arc = Arc::new(handler);
+
+        let wrapped_handler = move |payload: Vec<u8>| -> Result<()> {
+            handler_arc(Data(data.clone()), &payload)
+        };
+
+        let subscriber = Subscriber::new(pool, self.builder.exchange_kind.clone())
+            .with_exchange(&self.builder.exchange)
+            .with_single_active_consumer(self.builder.single_active_consumer);
+
+        BuiltWorker {
+            exchange_kind: self.builder.exchange_kind,
+            subscriber,
+            routing_key: self.builder.routing_key,
+            queue: self.builder.queue.expect("queue required"),
+            handler: Box::new(wrapped_handler),
+            retry_max_retries: if self.builder.retry_enabled { Some(self.builder.max_retries) } else { None },
+            retry_delay: if self.builder.retry_enabled { Some(self.builder.retry_delay) } else { None },
+            prefetch: self.builder.prefetch,
+            concurrency: self.builder.concurrency,
+            spawn_fn: self.builder.spawn_fn,
+            middlewares: self.builder.middlewares,
+        }
+    }
+}
 
 pub type SpawnFn = Arc<
     dyn Fn(
@@ -113,11 +246,26 @@ impl WorkerBuilder {
         self
     }
 
+    pub fn data<T>(self, data: Data<T>) -> WorkerBuilderWithData<T>
+    where
+        T: Send + Sync + 'static + Clone,
+    {
+        WorkerBuilderWithData {
+            builder: self,
+            data: data.0,
+        }
+    }
+
     pub fn build<F>(self, handler: F) -> BuiltWorker
     where
-        F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
+        F: Fn(&[u8]) -> Result<()> + Send + Sync + 'static,
     {
         let pool = self.channel_pool.expect("Pool must be set with .pool()");
+
+        let handler_arc = Arc::new(handler);
+        let wrapped_handler = move |payload: Vec<u8>| -> Result<()> {
+            handler_arc(&payload)
+        };
 
         let subscriber = Subscriber::new(pool, self.exchange_kind.clone())
             .with_exchange(&self.exchange)
@@ -128,7 +276,7 @@ impl WorkerBuilder {
             subscriber,
             routing_key: self.routing_key,
             queue: self.queue.expect("queue required"),
-            handler: Box::new(handler),
+            handler: Box::new(wrapped_handler),
             retry_max_retries: if self.retry_enabled { Some(self.max_retries) } else { None },
             retry_delay: if self.retry_enabled { Some(self.retry_delay) } else { None },
             prefetch: self.prefetch,

@@ -49,7 +49,7 @@ pub(super) fn set_headers(headers: Option<FieldTable>) {
     headers::HEADERS.with(|h| *h.borrow_mut() = headers);
 }
 
-// Implement Middleware for any function with matching signature
+// Implement Middleware for any function with matching signature (static, no dependency)
 impl<F> Middleware for F
 where
     F: Fn(&[u8], &Result<()>) -> Result<()> + Copy + Send + Sync,
