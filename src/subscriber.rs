@@ -299,9 +299,9 @@ impl Subscriber {
                 self.consume_parallel_workers(queue, handler, retry_queue, num_workers, spawner)
                     .await
             } else {
-                return Err(AmqpError::ChannelError(
+                Err(AmqpError::ChannelError(
                     "concurrency requires parallelize() to be set".to_string(),
-                ));
+                ))
             }
         } else {
             self.consume_single(queue, handler, retry_queue).await

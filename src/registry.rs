@@ -23,11 +23,6 @@ impl SubscriberRegistry {
         self
     }
 
-    pub fn add(mut self, worker: BuiltWorker) -> Self {
-        self.workers.push(worker);
-        self
-    }
-
     pub async fn run(self) -> Result<()> {
         let mut handles = Vec::new();
 
