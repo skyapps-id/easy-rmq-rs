@@ -31,6 +31,17 @@ pub struct SubscribeBuilder {
     routing_key: String,
 }
 
+struct ProcessMessageConfig<F> {
+    consumer: Consumer,
+    handler: Arc<F>,
+    retry_queue: Option<String>,
+    channel_pool: Arc<ChannelPool>,
+    max_retries: u32,
+    main_queue: String,
+    spawn_fn: Option<SpawnFn>,
+    middlewares: Vec<Arc<dyn Middleware>>,
+}
+
 impl Subscriber {
     pub fn new(channel_pool: Arc<ChannelPool>, exchange_type: ExchangeKind) -> Self {
         let exchange = default_exchange_for_kind(&exchange_type);
@@ -427,16 +438,16 @@ impl Subscriber {
             .map_err(AmqpError::ConnectionError)?;
 
         let max_retries = subscriber.retry_max_retries.unwrap_or(0);
-        Self::process_messages_static(
+        Self::process_messages_static(ProcessMessageConfig {
             consumer,
             handler,
             retry_queue,
-            subscriber.channel_pool.clone(),
+            channel_pool: subscriber.channel_pool.clone(),
             max_retries,
-            queue,
-            subscriber.spawn_fn.clone(),
-            subscriber.middlewares.clone(),
-        )
+            main_queue: queue.to_string(),
+            spawn_fn: subscriber.spawn_fn.clone(),
+            middlewares: subscriber.middlewares.clone(),
+        })
         .await
     }
 }
@@ -454,32 +465,34 @@ impl Subscriber {
     {
         let max_retries = self.retry_max_retries.unwrap_or(0);
         let handler = Arc::new(handler);
-        Self::process_messages_static(
+        Self::process_messages_static(ProcessMessageConfig {
             consumer,
             handler,
             retry_queue,
-            self.channel_pool.clone(),
+            channel_pool: self.channel_pool.clone(),
             max_retries,
-            main_queue,
-            self.spawn_fn.clone(),
-            self.middlewares.clone(),
-        )
+            main_queue: main_queue.to_string(),
+            spawn_fn: self.spawn_fn.clone(),
+            middlewares: self.middlewares.clone(),
+        })
         .await
     }
 
-    async fn process_messages_static<F>(
-        mut consumer: Consumer,
-        handler: Arc<F>,
-        retry_queue: Option<String>,
-        channel_pool: Arc<ChannelPool>,
-        max_retries: u32,
-        main_queue: &str,
-        spawn_fn: Option<SpawnFn>,
-        middlewares: Vec<Arc<dyn Middleware>>,
-    ) -> Result<()>
+    async fn process_messages_static<F>(config: ProcessMessageConfig<F>) -> Result<()>
     where
         F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
     {
+        let ProcessMessageConfig {
+            mut consumer,
+            handler,
+            retry_queue,
+            channel_pool,
+            max_retries,
+            main_queue,
+            spawn_fn,
+            middlewares,
+        } = config;
+
         while let Some(delivery_result) = consumer.next().await {
             match delivery_result {
                 Ok(delivery) => {
@@ -490,7 +503,7 @@ impl Subscriber {
 
                     let retry_queue_clone = retry_queue.clone();
                     let channel_pool_clone = channel_pool.clone();
-                    let main_queue_clone = main_queue.to_string();
+                    let main_queue_clone = main_queue.clone();
                     let handler_clone = Arc::clone(&handler);
                     let middlewares = middlewares.clone();
 
@@ -592,15 +605,15 @@ impl Subscriber {
                                         .await
                                         .map_err(AmqpError::ConnectionError)?;
                                 }
+                                }
                             }
-                        }
 
-                        for middleware in &middlewares {
-                            let _ = middleware.after(&data, &handler_result);
-                        }
+                            for middleware in &middlewares {
+                                let _ = middleware.after(&data, &handler_result);
+                            }
 
-                        Ok(())
-                    };
+                            Ok(())
+                        };
 
                     if let Some(spawner) = spawn_fn.clone() {
                         spawner(Box::pin(process_future));
