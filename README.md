@@ -13,8 +13,9 @@ Rust AMQP library with connection pool, publisher, subscriber, and dependency in
 - **Single Active Consumer**: Ensure only one consumer processes messages at a time
 - **Prefetch Control**: AMQP prefetch (QoS) configuration
 - **Parallel Processing**: Configurable worker concurrency with async/blocking spawn
-- **Middleware**: Custom middleware for logging, metrics, and distributed tracing
+- **Middleware**: Custom middleware for logging, metrics, and distributed tracing (static-only)
 - **Distributed Tracing**: Built-in trace ID generation with OpenTelemetry support
+- **Handler DI**: Dependency injection for handlers with `Data<T>` wrapper
 - **Dependency Injection**: Support for trait-based DI pattern
 - **Type Safe**: Strong error handling with thiserror
 - **Async**: Full async support using tokio
@@ -588,13 +589,78 @@ client.publisher()
 **Trace ID format:** `{timestamp_hex}-{random_hex}` (e.g., `19ca9a5f5e1-5e148b1f5008b7d8`)
 
 **See also:**
-- `examples/otel_integration.rs` - Complete OTel integration example
-- `examples/trace_id_generator.rs` - Trace ID generation demo
 - `examples/common/middleware.rs` - Built-in middleware implementations
 
 ## Dependency Injection
 
-This library supports dependency injection using traits:
+This library supports two types of dependency injection:
+
+### Handler DI with `Data<T>` Wrapper
+
+Inject dependencies into message handlers using the `Data<T>` wrapper:
+
+```rust
+use easy_rmq::{AmqpClient, Data, SubscriberRegistry, WorkerBuilder};
+use lapin::ExchangeKind;
+
+#[derive(Clone)]
+struct EmailService {
+    smtp_server: String,
+}
+
+impl EmailService {
+    fn new(smtp_server: String) -> Self {
+        Self { smtp_server }
+    }
+
+    fn send_email(&self, data: &[u8]) -> easy_rmq::Result<()> {
+        let msg = String::from_utf8_lossy(data);
+        println!("📧 Sending email via SMTP: {}", self.smtp_server);
+        println!("   Data: {}", msg);
+        Ok(())
+    }
+}
+
+// Handler with dependency injection
+fn send_email(service: Data<EmailService>, data: &[u8]) -> easy_rmq::Result<()> {
+    service.send_email(data)
+}
+
+#[tokio::main]
+async fn main() -> easy_rmq::Result<()> {
+    let client = AmqpClient::new("amqp://admin:password@localhost:5672".to_string(), 10)?;
+    let pool = client.channel_pool();
+
+    // Create shared service
+    let email_service = Data::new(EmailService::new("smtp.gmail.com:587".to_string()));
+
+    let worker = SubscriberRegistry::new()
+        .register({
+            let pool = pool.clone();
+            let email_service = email_service.clone();
+            move |_count| {
+                WorkerBuilder::new(ExchangeKind::Direct)
+                    .pool(pool.clone())
+                    .with_exchange("emails.v1")
+                    .queue("emails.send")
+                    .data(email_service.clone())  // Inject dependency
+                    .build(send_email)
+            }
+        });
+
+    worker.run().await?;
+    Ok(())
+}
+```
+
+✅ **Clean separation** - Services defined separately from handlers
+✅ **Shared dependencies** - Clone `Data<T>` across multiple workers
+✅ **Type safe** - Compile-time dependency checking
+✅ **Testable** - Easily inject mock services for testing
+
+### Publisher Trait-Based DI
+
+Use traits for publisher dependency injection in services:
 
 ```rust
 use easy_rmq::{AmqpPublisher, Result};
@@ -621,6 +687,89 @@ let publisher: Arc<dyn AmqpPublisher> = Arc::new(client.publisher());
 let order_service = OrderService::new(publisher);
 ```
 
+### Complete DI Example: Publisher + Subscriber
+
+Full example with multiple publishers and handlers with DI:
+
+```rust
+use easy_rmq::{AmqpClient, Data, SubscriberRegistry, WorkerBuilder};
+use lapin::ExchangeKind;
+
+#[derive(Clone)]
+struct EmailService {
+    smtp_server: String,
+}
+
+impl EmailService {
+    fn send_email(&self, data: &[u8]) -> easy_rmq::Result<()> {
+        let msg = String::from_utf8_lossy(data);
+        println!("📧 Sending email via {}: {}", self.smtp_server, msg);
+        Ok(())
+    }
+}
+
+fn send_email(service: Data<EmailService>, data: &[u8]) -> easy_rmq::Result<()> {
+    service.send_email(data)
+}
+
+fn handle_order(data: &[u8]) -> easy_rmq::Result<()> {
+    let msg = String::from_utf8_lossy(data);
+    println!("📦 Processing order: {}", msg);
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> easy_rmq::Result<()> {
+    let client = AmqpClient::new("amqp://admin:password@localhost:5672".to_string(), 10)?;
+    let pool = client.channel_pool();
+    
+    let email_service = Data::new(EmailService::new("smtp.gmail.com:587".to_string()));
+
+    // Subscribe to multiple exchanges
+    let worker = SubscriberRegistry::new()
+        .register({
+            let pool = pool.clone();
+            move |_count| {
+                WorkerBuilder::new(ExchangeKind::Direct)
+                    .pool(pool.clone())
+                    .with_exchange("orders.v1")
+                    .queue("orders.process")
+                    .build(handle_order)
+            }
+        })
+        .register({
+            let pool = pool.clone();
+            let email_service = email_service.clone();
+            move |_count| {
+                WorkerBuilder::new(ExchangeKind::Direct)
+                    .pool(pool.clone())
+                    .with_exchange("emails.v1")
+                    .queue("emails.send")
+                    .data(email_service.clone())
+                    .build(send_email)
+            }
+        });
+
+    // In separate publisher:
+    // Publish to orders.v1
+    let order_publisher = client.publisher().with_exchange("orders.v1");
+    order_publisher
+        .with_auto_trace_id()
+        .publish_text("orders.process", "Order data")
+        .await?;
+
+    // Publish to emails.v1
+    let email_publisher = client.publisher().with_exchange("emails.v1");
+    email_publisher
+        .with_auto_trace_id()
+        .publish_text("emails.send", "Email data")
+        .await?;
+
+    worker.run().await?;
+    Ok(())
+}
+```
+
 ## Examples
 
 See `examples/` folder for complete usage examples:
@@ -628,11 +777,10 @@ See `examples/` folder for complete usage examples:
 ### Core Examples
 - **`publisher.rs`** - Publisher with auto trace ID generation
 - **`subscriber.rs`** - Multi-worker with middleware, retry, prefetch, concurrency, and SAC
-- **`single_active_consumer.rs`** - Single active consumer demonstration
 
-### Distributed Tracing Examples
-- **`otel_integration.rs`** - OpenTelemetry integration patterns
-- **`trace_id_generator.rs`** - Standalone trace ID generation demo
+### Dependency Injection Examples
+- **`dependency_injection.rs`** - Handler-level DI with `Data<T>`
+- **`dependency_injection_publisher.rs`** - Publisher trait-based DI pattern
 
 ### Quick Start
 ```bash
@@ -642,11 +790,11 @@ cargo run --example subscriber
 # Terminal 2 - Then publisher
 cargo run --example publisher
 
-# Run OTel integration example
-cargo run --example otel_integration
+# Terminal 1 - Dependency injection subscriber
+cargo run --example dependency_injection
 
-# Generate trace IDs
-cargo run --example trace_id_generator
+# Terminal 2 - Dependency injection publisher
+cargo run --example dependency_injection_publisher
 ```
 
 ### Common Middleware
