@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use easy_rmq::{AmqpClient, Data, Result, SubscriberRegistry, WorkerBuilder};
+use easy_rmq_rs::{AmqpClient, Data, Result, SubscriberRegistry, WorkerBuilder};
 use lapin::ExchangeKind;
 
 #[derive(Clone)]

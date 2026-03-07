@@ -1,10 +1,12 @@
 [package]
-name = "easy_rmq"
-version = "0.1.0"
+name = "easy-rmq-rs"
+version = "1.0.0"
 edition = "2024"
+description = "Easy-to-use RabbitMQ library for Rust"
+license = "MIT"
 
 [lib]
-name = "easy_rmq"
+name = "easy_rmq_rs"
 path = "src/lib.rs"
 
 [dependencies]

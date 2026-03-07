@@ -1,4 +1,4 @@
-use easy_rmq::{AmqpClient, AmqpPublisher};
+use easy_rmq_rs::{AmqpClient, AmqpPublisher};
 use std::sync::Arc;
 
 #[test]
@@ -33,7 +33,7 @@ fn test_single_active_consumer_method_chain() {
     let client = AmqpClient::new("amqp://guest:guest@localhost:5672".to_string(), 10).unwrap();
     let pool = client.channel_pool();
 
-    use easy_rmq::WorkerBuilder;
+    use easy_rmq_rs::WorkerBuilder;
     use lapin::ExchangeKind;
 
     let _worker = WorkerBuilder::new(ExchangeKind::Direct)
@@ -48,7 +48,7 @@ fn test_single_active_consumer_direct_builder() {
     let client = AmqpClient::new("amqp://guest:guest@localhost:5672".to_string(), 10).unwrap();
     let pool = client.channel_pool();
 
-    use easy_rmq::WorkerBuilder;
+    use easy_rmq_rs::WorkerBuilder;
     use lapin::ExchangeKind;
 
     let _worker = WorkerBuilder::new(ExchangeKind::Direct)
@@ -63,7 +63,7 @@ fn test_single_active_consumer_topic_builder() {
     let client = AmqpClient::new("amqp://guest:guest@localhost:5672".to_string(), 10).unwrap();
     let pool = client.channel_pool();
 
-    use easy_rmq::WorkerBuilder;
+    use easy_rmq_rs::WorkerBuilder;
     use lapin::ExchangeKind;
 
     let _worker = WorkerBuilder::new(ExchangeKind::Topic)
@@ -79,7 +79,7 @@ fn test_single_active_consumer_fanout_builder() {
     let client = AmqpClient::new("amqp://guest:guest@localhost:5672".to_string(), 10).unwrap();
     let pool = client.channel_pool();
 
-    use easy_rmq::WorkerBuilder;
+    use easy_rmq_rs::WorkerBuilder;
     use lapin::ExchangeKind;
 
     let _worker = WorkerBuilder::new(ExchangeKind::Fanout)
