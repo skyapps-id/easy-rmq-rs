@@ -1,10 +1,10 @@
 [package]
-name = "easy_rmq"
+name = "easy-rmq-rs"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "easy_rmq"
+name = "easy_rmq_rs"
 path = "src/lib.rs"
 
 [dependencies]

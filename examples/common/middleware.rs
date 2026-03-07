@@ -1,4 +1,4 @@
-use easy_rmq::Result;
+use easy_rmq_rs::Result;
 
 // Example: Extract trace-id from AMQP headers
 pub fn extract_trace_id(headers: &Option<lapin::types::FieldTable>) -> Option<String> {
@@ -33,7 +33,7 @@ pub fn metrics(_payload: &[u8], result: &Result<()>) -> Result<()> {
             let count = SUCCESS_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
 
             // Get execution time from middleware blanket impl
-            if let Some(elapsed_us) = easy_rmq::get_execution_time_us() {
+            if let Some(elapsed_us) = easy_rmq_rs::get_execution_time_us() {
                 let total = TOTAL_TIME_US.fetch_add(elapsed_us, Ordering::Relaxed) + elapsed_us;
                 let avg_us = total / count;
                 tracing::info!(
@@ -56,7 +56,7 @@ pub fn metrics(_payload: &[u8], result: &Result<()>) -> Result<()> {
 
 // Example: Tracing middleware (function-based)
 pub fn tracing(_payload: &[u8], result: &Result<()>) -> Result<()> {
-    let trace_id = easy_rmq::get_headers()
+    let trace_id = easy_rmq_rs::get_headers()
         .and_then(|h| extract_trace_id(&Some(h)))
         .unwrap_or_else(|| "unknown".to_string());
 

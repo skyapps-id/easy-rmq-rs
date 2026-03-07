@@ -1,4 +1,4 @@
-# easy_rmq
+# easy-rmq-rs
 
 Rust AMQP library with connection pool, publisher, subscriber, and dependency injection support.
 
@@ -24,7 +24,7 @@ Rust AMQP library with connection pool, publisher, subscriber, and dependency in
 
 ```toml
 [dependencies]
-easy_rmq = { path = "./easy_rmq" }
+easy-rmq-rs = { path = "./easy-rmq-rs" }
 ```
 
 ## Quick Start
@@ -76,7 +76,7 @@ This follows AMQP best practices:
 ### Creating a Client
 
 ```rust
-use easy_rmq::AmqpClient;
+use easy_rmq_rs::AmqpClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -94,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 Publisher **simple** - send to default exchange:
 
 ```rust
-use easy_rmq::AmqpClient;
+use easy_rmq_rs::AmqpClient;
 
 let client = AmqpClient::new("amqp://guest:guest@localhost:5672".to_string(), 10)?;
 
@@ -159,11 +159,11 @@ let pub6 = client.publisher().with_fanout("events");
 Use `SubscriberRegistry` to manage multiple workers:
 
 ```rust
-use easy_rmq::{AmqpClient, SubscriberRegistry, WorkerBuilder};
+use easy_rmq_rs::{AmqpClient, SubscriberRegistry, WorkerBuilder};
 use lapin::ExchangeKind;
 
 #[tokio::main]
-async fn main() -> easy_rmq::Result<()> {
+async fn main() -> easy_rmq_rs::Result<()> {
     let client = AmqpClient::new("amqp://admin:password@localhost:5672".to_string(), 10)?;
     let pool = client.channel_pool();
 
@@ -196,13 +196,13 @@ async fn main() -> easy_rmq::Result<()> {
     Ok(())
 }
 
-fn handle_order_event(data: Vec<u8>) -> easy_rmq::Result<()> {
+fn handle_order_event(data: Vec<u8>) -> easy_rmq_rs::Result<()> {
     let msg = String::from_utf8_lossy(&data);
     println!("📦 Order: {}", msg);
     Ok(())
 }
 
-fn handle_log_event(data: Vec<u8>) -> easy_rmq::Result<()> {
+fn handle_log_event(data: Vec<u8>) -> easy_rmq_rs::Result<()> {
     let msg = String::from_utf8_lossy(&data);
     println!("📊 Log: {}", msg);
     Ok(())
@@ -373,7 +373,7 @@ WorkerBuilder::new(ExchangeKind::Direct)
 Add middleware for logging, metrics, and distributed tracing:
 
 ```rust
-use easy_rmq::{WorkerBuilder, SubscriberRegistry};
+use easy_rmq_rs::{WorkerBuilder, SubscriberRegistry};
 use lapin::ExchangeKind;
 
 // Define middleware functions
@@ -473,7 +473,7 @@ Built-in support for distributed tracing with automatic or custom trace ID gener
 ### Publisher with Trace ID
 
 ```rust
-use easy_rmq::AmqpClient;
+use easy_rmq_rs::AmqpClient;
 
 let client = AmqpClient::new("amqp://guest:guest@localhost:5672".to_string(), 10)?;
 
@@ -490,7 +490,7 @@ client.publisher()
     .await?;
 
 // Option 3: Generate standalone trace ID
-use easy_rmq::generate_trace_id;
+use easy_rmq_rs::generate_trace_id;
 let trace_id = generate_trace_id();
 client.publisher()
     .with_trace_id(trace_id)
@@ -503,11 +503,11 @@ client.publisher()
 The subscriber automatically stores message headers in thread-local storage, accessible via `easy_rmq::get_headers()`:
 
 ```rust
-use easy_rmq::Result;
+use easy_rmq_rs::Result;
 
 // In your handler or middleware
 pub fn extract_trace_id() -> Option<String> {
-    easy_rmq::get_headers()
+    easy_rmq_rs::get_headers()
         .and_then(|h| h.inner().get("x-trace-id").cloned())
         .and_then(|v| match v {
             lapin::types::AMQPValue::LongString(s) => Some(s.to_string()),
@@ -530,7 +530,7 @@ fn handle_event(data: Vec<u8>) -> Result<()> {
 Use the built-in `tracing` middleware for automatic trace ID extraction and logging:
 
 ```rust
-use easy_rmq::{WorkerBuilder, SubscriberRegistry};
+use easy_rmq_rs::{WorkerBuilder, SubscriberRegistry};
 use lapin::ExchangeKind;
 
 // Add tracing middleware
@@ -600,7 +600,7 @@ This library supports two types of dependency injection:
 Inject dependencies into message handlers using the `Data<T>` wrapper:
 
 ```rust
-use easy_rmq::{AmqpClient, Data, SubscriberRegistry, WorkerBuilder};
+use easy_rmq_rs::{AmqpClient, Data, SubscriberRegistry, WorkerBuilder};
 use lapin::ExchangeKind;
 
 #[derive(Clone)]
@@ -613,7 +613,7 @@ impl EmailService {
         Self { smtp_server }
     }
 
-    fn send_email(&self, data: &[u8]) -> easy_rmq::Result<()> {
+    fn send_email(&self, data: &[u8]) -> easy_rmq_rs::Result<()> {
         let msg = String::from_utf8_lossy(data);
         println!("📧 Sending email via SMTP: {}", self.smtp_server);
         println!("   Data: {}", msg);
@@ -622,12 +622,12 @@ impl EmailService {
 }
 
 // Handler with dependency injection
-fn send_email(service: Data<EmailService>, data: &[u8]) -> easy_rmq::Result<()> {
+fn send_email(service: Data<EmailService>, data: &[u8]) -> easy_rmq_rs::Result<()> {
     service.send_email(data)
 }
 
 #[tokio::main]
-async fn main() -> easy_rmq::Result<()> {
+async fn main() -> easy_rmq_rs::Result<()> {
     let client = AmqpClient::new("amqp://admin:password@localhost:5672".to_string(), 10)?;
     let pool = client.channel_pool();
 
@@ -663,7 +663,7 @@ async fn main() -> easy_rmq::Result<()> {
 Use traits for publisher dependency injection in services:
 
 ```rust
-use easy_rmq::{AmqpPublisher, Result};
+use easy_rmq_rs::{AmqpPublisher, Result};
 use std::sync::Arc;
 
 struct OrderService {
@@ -692,7 +692,7 @@ let order_service = OrderService::new(publisher);
 Full example with multiple publishers and handlers with DI:
 
 ```rust
-use easy_rmq::{AmqpClient, Data, SubscriberRegistry, WorkerBuilder};
+use easy_rmq_rs::{AmqpClient, Data, SubscriberRegistry, WorkerBuilder};
 use lapin::ExchangeKind;
 
 #[derive(Clone)]
@@ -701,25 +701,25 @@ struct EmailService {
 }
 
 impl EmailService {
-    fn send_email(&self, data: &[u8]) -> easy_rmq::Result<()> {
+    fn send_email(&self, data: &[u8]) -> easy_rmq_rs::Result<()> {
         let msg = String::from_utf8_lossy(data);
         println!("📧 Sending email via {}: {}", self.smtp_server, msg);
         Ok(())
     }
 }
 
-fn send_email(service: Data<EmailService>, data: &[u8]) -> easy_rmq::Result<()> {
+fn send_email(service: Data<EmailService>, data: &[u8]) -> easy_rmq_rs::Result<()> {
     service.send_email(data)
 }
 
-fn handle_order(data: &[u8]) -> easy_rmq::Result<()> {
+fn handle_order(data: &[u8]) -> easy_rmq_rs::Result<()> {
     let msg = String::from_utf8_lossy(data);
     println!("📦 Processing order: {}", msg);
     Ok(())
 }
 
 #[tokio::main]
-async fn main() -> easy_rmq::Result<()> {
+async fn main() -> easy_rmq_rs::Result<()> {
     let client = AmqpClient::new("amqp://admin:password@localhost:5672".to_string(), 10)?;
     let pool = client.channel_pool();
     
