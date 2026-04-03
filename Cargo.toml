@@ -25,3 +25,7 @@ tokio-executor-trait = "3.1.0"
 tokio-reactor-trait = "4.1.1"
 chrono = "0.4.44"
 rand = "0.10.0"
+
+[dev-dependencies]
+actix-web = "4.9.0"
+env_logger = "0.11"

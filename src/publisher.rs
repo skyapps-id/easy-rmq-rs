@@ -37,38 +37,9 @@ impl Publisher {
         self
     }
 
-    pub async fn publish_json<T: serde::Serialize>(
-        &self,
-        routing_key: &str,
-        payload: &T,
-    ) -> Result<()> {
-        let json = serde_json::to_vec(payload).map_err(AmqpError::SerializationError)?;
-        self.publish(&self.exchange, routing_key, &json).await
-    }
-
-    pub async fn publish_json_to<T: serde::Serialize>(
-        &self,
-        exchange: &str,
-        routing_key: &str,
-        payload: &T,
-    ) -> Result<()> {
-        let json = serde_json::to_vec(payload).map_err(AmqpError::SerializationError)?;
-        self.publish(exchange, routing_key, &json).await
-    }
-
-    pub async fn publish_text(&self, routing_key: &str, payload: &str) -> Result<()> {
-        self.publish(&self.exchange, routing_key, payload.as_bytes())
-            .await
-    }
-
-    pub async fn publish_text_to(
-        &self,
-        exchange: &str,
-        routing_key: &str,
-        payload: &str,
-    ) -> Result<()> {
-        self.publish(exchange, routing_key, payload.as_bytes())
-            .await
+    /// Publish message using pre-configured exchange
+    pub async fn publish(&self, routing_key: &str, payload: impl AsRef<[u8]>) -> Result<()> {
+        AmqpPublisher::publish(self, &self.exchange, routing_key, payload.as_ref()).await
     }
 
     async fn publish_with_trace(&self, exchange: &str, routing_key: &str, payload: &[u8]) -> Result<()> {

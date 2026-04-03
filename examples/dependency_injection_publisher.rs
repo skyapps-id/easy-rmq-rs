@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
         order_publisher
             .clone()
             .with_auto_trace_id()
-            .publish_text("orders.process", &order.to_string())
+            .publish("orders.process", &order.to_string())
             .await?;
         
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -53,7 +53,7 @@ async fn main() -> Result<()> {
         email_publisher
             .clone()
             .with_auto_trace_id()
-            .publish_text("emails.send", &email.to_string())
+            .publish("emails.send", &email.to_string())
             .await?;
         
         tokio::time::sleep(Duration::from_millis(500)).await;

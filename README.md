@@ -5,7 +5,7 @@ Rust AMQP library with connection pool, publisher, subscriber, and dependency in
 ## Features
 
 - **Connection Pool**: Efficiently manages AMQP connections using deadpool
-- **Publisher**: Send messages to exchanges with routing keys
+- **Simple Publisher API**: Single `publish()` method for all data types (`&str`, `&[u8]`, `&String`, `&Vec<u8>`)
 - **Subscriber**: Receive messages from queues with handlers
 - **Worker Registry**: Register and manage multiple workers with a clean pattern
 - **Auto Setup**: Automatically creates exchanges and queues
@@ -101,9 +101,9 @@ let client = AmqpClient::new("amqp://guest:guest@localhost:5672".to_string(), 10
 let publisher = client.publisher();
 
 // Publish text
-publisher.publish_text(
+publisher.publish(
     "order.created",    // routing key
-    "Hello, AMQP!"
+    "Hello, AMQP!"     // &str
 ).await?;
 
 // Publish JSON
@@ -118,12 +118,29 @@ let order = Order {
     total: 100.0,
 };
 
-publisher.publish_json("order.created", &order).await?;
+// Automatically serialized
+let json = serde_json::to_vec(&order)?;
+publisher.publish("order.created", json).await?;
+```
+
+**Publisher accepts multiple data types:**
+- `&str` - string slices
+- `&[u8]` - byte slices
+- `&String` - owned strings
+- `&Vec<u8>` - byte vectors
+
+```rust
+// All of these work:
+publisher.publish("key", "hello").await?;           // &str
+publisher.publish("key", b"bytes").await?;           // &[u8]
+publisher.publish("key", &String::from("x")).await?; // &String
+publisher.publish("key", &vec![1, 2, 3]).await?;    // &Vec<u8>
 ```
 
 ✅ **Auto send to default exchange** (`amq.direct`)
 ✅ **Auto-create exchange** if not exists (durable)
 ✅ **No manual setup needed**
+✅ **Simple API** - One method for all data types
 
 ### Multiple Exchanges
 
@@ -134,15 +151,15 @@ let client = AmqpClient::new("...", 10)?;
 
 // Publisher 1 - Direct exchange
 let pub1 = client.publisher().with_exchange("orders", ExchangeKind::Direct);
-pub1.publish_text("order.created", "Order data").await?;
+pub1.publish("order.created", "Order data").await?;
 
 // Publisher 2 - Topic exchange
 let pub2 = client.publisher().with_exchange("logs", ExchangeKind::Topic);
-pub2.publish_text("order.created", "Log data").await?;
+pub2.publish("order.created", "Log data").await?;
 
 // Publisher 3 - Fanout exchange
 let pub3 = client.publisher().with_exchange("broadcast", ExchangeKind::Fanout);
-pub3.publish_text("any", "Broadcast data").await?;
+pub3.publish("any", "Broadcast data").await?;
 
 // Shortcut methods
 let pub4 = client.publisher().with_topic("logs");
@@ -480,13 +497,13 @@ let client = AmqpClient::new("amqp://guest:guest@localhost:5672".to_string(), 10
 // Option 1: Auto-generate trace ID (recommended for most cases)
 client.publisher()
     .with_auto_trace_id()
-    .publish_text("order.created", "Order data")
+    .publish("order.created", "Order data")
     .await?;
 
 // Option 2: Use custom trace ID (e.g., from OpenTelemetry)
 client.publisher()
     .with_trace_id("trace-from-otel-123".to_string())
-    .publish_text("order.created", "Order data")
+    .publish("order.created", "Order data")
     .await?;
 
 // Option 3: Generate standalone trace ID
@@ -494,7 +511,7 @@ use easy_rmq_rs::generate_trace_id;
 let trace_id = generate_trace_id();
 client.publisher()
     .with_trace_id(trace_id)
-    .publish_text("order.created", "Order data")
+    .publish("order.created", "Order data")
     .await?;
 ```
 
@@ -569,13 +586,13 @@ let trace_id = span.span_context().trace_id().to_string();
 // Pass trace ID through message pipeline
 client.publisher()
     .with_trace_id(trace_id)
-    .publish_text("order.created", payload)
+    .publish("order.created", payload)
     .await?;
 
 // Or auto-generate when no OTel context available
 client.publisher()
     .with_auto_trace_id()
-    .publish_text("order.created", payload)
+    .publish("order.created", payload)
     .await?;
 ```
 
@@ -677,7 +694,7 @@ impl OrderService {
 
     async fn create_order(&self, order: Order) -> Result<()> {
         let payload = serde_json::to_vec(&order)?;
-        self.publisher.publish("orders", "order.created", &payload).await?;
+        self.publisher.publish("orders", "order.created", payload).await?;
         Ok(())
     }
 }
@@ -755,14 +772,14 @@ async fn main() -> easy_rmq_rs::Result<()> {
     let order_publisher = client.publisher().with_exchange("orders.v1");
     order_publisher
         .with_auto_trace_id()
-        .publish_text("orders.process", "Order data")
+        .publish("orders.process", "Order data")
         .await?;
 
     // Publish to emails.v1
     let email_publisher = client.publisher().with_exchange("emails.v1");
     email_publisher
         .with_auto_trace_id()
-        .publish_text("emails.send", "Email data")
+        .publish("emails.send", "Email data")
         .await?;
 
     worker.run().await?;

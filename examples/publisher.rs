@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
         // With custom trace ID (from OTel for example)
         pub1.clone()
             .with_trace_id("trace-from-otel-123".to_string())
-            .publish_text("order.process", &order.to_string()).await?;
+            .publish("order.process", &order.to_string()).await?;
         
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
@@ -46,7 +46,7 @@ async fn main() -> Result<()> {
         
         pub2.clone()
             .with_auto_trace_id()
-            .publish_text("stock.event", &stock.to_string()).await?;
+            .publish("stock.event", &stock.to_string()).await?;
         
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
@@ -68,7 +68,7 @@ async fn main() -> Result<()> {
         // Auto-generate trace ID
         pub3.clone()
             .with_auto_trace_id()
-            .publish_text("order.api", &log.to_string()).await?;
+            .publish("order.api", &log.to_string()).await?;
         
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
