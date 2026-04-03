@@ -1,6 +1,6 @@
 [package]
 name = "easy-rmq-rs"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 description = "Easy-to-use RabbitMQ library for Rust"
 license = "MIT"
@@ -10,18 +10,18 @@ name = "easy_rmq_rs"
 path = "src/lib.rs"
 
 [dependencies]
-lapin = "2.5"
-tokio = { version = "1", features = ["full"] }
-deadpool = "0.10"
+lapin = "4.4.0"
+tokio = { version = "1.50.0", features = ["full"] }
+deadpool = "0.13.0"
 async-trait = "0.1"
 anyhow = "1"
-thiserror = "1"
+thiserror = "2.0.18"
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = "0.3.23"
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio-executor-trait = "2.1"
-tokio-reactor-trait = "1.1"
-chrono = "0.4"
-rand = "0.8"
+tokio-executor-trait = "3.1.0"
+tokio-reactor-trait = "4.1.1"
+chrono = "0.4.44"
+rand = "0.10.0"

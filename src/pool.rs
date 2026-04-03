@@ -1,6 +1,7 @@
 use crate::error::{AmqpError, Result};
-use deadpool::managed::{Manager, Pool};
+use deadpool::managed::{Manager, Pool, RecycleError, RecycleResult};
 use lapin::{Channel, Connection, ConnectionProperties};
+use std::future::Future;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -14,33 +15,29 @@ impl AmqpConnectionManager {
     }
 }
 
-#[async_trait::async_trait]
 impl Manager for AmqpConnectionManager {
     type Type = Connection;
     type Error = lapin::Error;
 
-    async fn create(&self) -> std::result::Result<Self::Type, Self::Error> {
-        let opts = ConnectionProperties::default()
-            .with_executor(tokio_executor_trait::Tokio::current())
-            .with_reactor(tokio_reactor_trait::Tokio);
+    fn create(&self) -> impl Future<Output = std::result::Result<Self::Type, Self::Error>> + Send {
+        let uri = self.uri.clone();
+        async move {
+            let opts = ConnectionProperties::default();
 
-        Connection::connect(&self.uri, opts).await
+            Connection::connect(&uri, opts).await
+        }
     }
 
-    async fn recycle(
-        &self,
-        conn: &mut Self::Type,
-        _metrics: &deadpool::managed::Metrics,
-    ) -> deadpool::managed::RecycleResult<Self::Error> {
-        if conn.status().connected() {
-            Ok(())
-        } else {
-            Err(deadpool::managed::RecycleError::Backend(
-                lapin::Error::IOError(std::sync::Arc::new(std::io::Error::new(
-                    std::io::ErrorKind::ConnectionReset,
-                    "Connection not connected",
-                ))),
-            ))
+    #[allow(clippy::manual_async_fn)]
+    fn recycle(&self, conn: &mut Self::Type, _metrics: &deadpool::managed::Metrics) -> impl Future<Output = RecycleResult<Self::Error>> + Send {
+        async move {
+            if conn.status().connected() {
+                Ok(())
+            } else {
+                Err(RecycleError::Backend(
+                    std::io::Error::new(std::io::ErrorKind::ConnectionReset, "Connection not connected").into(),
+                ))
+            }
         }
     }
 }

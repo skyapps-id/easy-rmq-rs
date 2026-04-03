@@ -88,8 +88,8 @@ impl Publisher {
 
         channel
             .basic_publish(
-                exchange,
-                routing_key,
+                exchange.into(),
+                routing_key.into(),
                 BasicPublishOptions::default(),
                 payload,
                 props,
@@ -115,8 +115,8 @@ impl AmqpPublisher for Publisher {
 
             channel
                 .basic_publish(
-                    exchange,
-                    routing_key,
+                    exchange.into(),
+                    routing_key.into(),
                     BasicPublishOptions::default(),
                     payload,
                     props,

@@ -142,7 +142,7 @@ impl Subscriber {
             // Try to create, ignore if already exists
             let result = channel
                 .exchange_declare(
-                    exchange,
+                    exchange.into(),
                     exchange_type,
                     ExchangeDeclareOptions {
                         durable: true,
@@ -183,7 +183,7 @@ impl Subscriber {
             }
 
             channel
-                .queue_declare(queue, options, args)
+                .queue_declare(queue.into(), options, args)
                 .await
                 .map_err(AmqpError::ConnectionError)?;
         }
@@ -196,9 +196,9 @@ impl Subscriber {
 
             channel
                 .queue_bind(
-                    queue,
-                    exchange,
-                    routing_key,
+                    queue.into(),
+                    exchange.into(),
+                    routing_key.into(),
                     QueueBindOptions::default(),
                     FieldTable::default(),
                 )
@@ -284,7 +284,7 @@ impl Subscriber {
 
         channel
             .queue_declare(
-                queue,
+                queue.into(),
                 QueueDeclareOptions {
                     durable: true,
                     ..Default::default()
@@ -339,8 +339,8 @@ impl Subscriber {
 
         let consumer = channel
             .basic_consume(
-                queue,
-                "",
+                queue.into(),
+                "".into(),
                 BasicConsumeOptions::default(),
                 FieldTable::default(),
             )
@@ -429,8 +429,8 @@ impl Subscriber {
 
         let consumer = channel
             .basic_consume(
-                queue,
-                &consumer_tag,
+                queue.into(),
+                consumer_tag.as_str().into(),
                 BasicConsumeOptions::default(),
                 FieldTable::default(),
             )
@@ -552,8 +552,8 @@ impl Subscriber {
 
                                         channel
                                             .basic_publish(
-                                                "",
-                                                retry_q,
+                                                "".into(),
+                                                retry_q.as_str().into(),
                                                 BasicPublishOptions::default(),
                                                 &delivery_data,
                                                 publish_props,
@@ -577,8 +577,8 @@ impl Subscriber {
 
                                         channel
                                             .basic_publish(
-                                                "",
-                                                &dlq_queue,
+                                                "".into(),
+                                                dlq_queue.as_str().into(),
                                                 BasicPublishOptions::default(),
                                                 &delivery_data,
                                                 lapin::BasicProperties::default()
