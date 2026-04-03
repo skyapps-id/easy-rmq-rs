@@ -29,8 +29,8 @@ pub struct AmqpClient {
 }
 
 impl AmqpClient {
-    pub fn new(uri: String, max_size: usize) -> Result<Self> {
-        let pool = Arc::new(create_pool(uri, max_size)?);
+    pub fn new(uri: String, connection_name: String, max_size: usize) -> Result<Self> {
+        let pool = Arc::new(create_pool(uri, connection_name, max_size)?);
         let channel_pool = Arc::new(ChannelPool::new(pool));
 
         Ok(Self { channel_pool })
@@ -55,7 +55,7 @@ mod tests {
 
     #[test]
     fn test_create_client() {
-        let client = AmqpClient::new("amqp://guest:guest@localhost:5672".to_string(), 10);
+        let client = AmqpClient::new("amqp://guest:guest@localhost:5672".to_string(), "test-connection".to_string(), 10);
         assert!(client.is_ok());
     }
 }

@@ -82,6 +82,7 @@ use easy_rmq_rs::AmqpClient;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = AmqpClient::new(
         "amqp://guest:guest@localhost:5672".to_string(),
+        "my-app".to_string(),  // connection name (visible in RabbitMQ Manager)
         10  // max pool size
     )?;
 
@@ -96,7 +97,11 @@ Publisher **simple** - send to default exchange:
 ```rust
 use easy_rmq_rs::AmqpClient;
 
-let client = AmqpClient::new("amqp://guest:guest@localhost:5672".to_string(), 10)?;
+let client = AmqpClient::new(
+    "amqp://guest:guest@localhost:5672".to_string(),
+    "my-app".to_string(),
+    10
+)?;
 
 let publisher = client.publisher();
 
@@ -147,7 +152,11 @@ publisher.publish("key", &vec![1, 2, 3]).await?;    // &Vec<u8>
 ```rust
 use lapin::ExchangeKind;
 
-let client = AmqpClient::new("...", 10)?;
+let client = AmqpClient::new(
+    "amqp://guest:guest@localhost:5672".to_string(),
+    "my-app".to_string(),
+    10
+)?;
 
 // Publisher 1 - Direct exchange
 let pub1 = client.publisher().with_exchange("orders", ExchangeKind::Direct);
@@ -181,7 +190,11 @@ use lapin::ExchangeKind;
 
 #[tokio::main]
 async fn main() -> easy_rmq_rs::Result<()> {
-    let client = AmqpClient::new("amqp://admin:password@localhost:5672".to_string(), 10)?;
+    let client = AmqpClient::new(
+        "amqp://admin:password@localhost:5672".to_string(),
+        "subscriber".to_string(),
+        10
+    )?;
     let pool = client.channel_pool();
 
     let worker = SubscriberRegistry::new()
@@ -492,7 +505,11 @@ Built-in support for distributed tracing with automatic or custom trace ID gener
 ```rust
 use easy_rmq_rs::AmqpClient;
 
-let client = AmqpClient::new("amqp://guest:guest@localhost:5672".to_string(), 10)?;
+let client = AmqpClient::new(
+    "amqp://guest:guest@localhost:5672".to_string(),
+    "my-app".to_string(),
+    10
+)?;
 
 // Option 1: Auto-generate trace ID (recommended for most cases)
 client.publisher()
@@ -645,7 +662,11 @@ fn send_email(service: Data<EmailService>, data: &[u8]) -> easy_rmq_rs::Result<(
 
 #[tokio::main]
 async fn main() -> easy_rmq_rs::Result<()> {
-    let client = AmqpClient::new("amqp://admin:password@localhost:5672".to_string(), 10)?;
+    let client = AmqpClient::new(
+        "amqp://admin:password@localhost:5672".to_string(),
+        "email-service".to_string(),
+        10
+    )?;
     let pool = client.channel_pool();
 
     // Create shared service
@@ -699,7 +720,11 @@ impl OrderService {
     }
 }
 
-let client = AmqpClient::new("amqp://guest:guest@localhost:5672".to_string(), 10)?;
+let client = AmqpClient::new(
+    "amqp://guest:guest@localhost:5672".to_string(),
+    "order-service".to_string(),
+    10
+)?;
 let publisher: Arc<dyn AmqpPublisher> = Arc::new(client.publisher());
 let order_service = OrderService::new(publisher);
 ```
@@ -737,7 +762,11 @@ fn handle_order(data: &[u8]) -> easy_rmq_rs::Result<()> {
 
 #[tokio::main]
 async fn main() -> easy_rmq_rs::Result<()> {
-    let client = AmqpClient::new("amqp://admin:password@localhost:5672".to_string(), 10)?;
+    let client = AmqpClient::new(
+        "amqp://admin:password@localhost:5672".to_string(),
+        "worker-app".to_string(),
+        10
+    )?;
     let pool = client.channel_pool();
     
     let email_service = Data::new(EmailService::new("smtp.gmail.com:587".to_string()));

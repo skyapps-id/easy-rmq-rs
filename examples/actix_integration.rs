@@ -87,6 +87,7 @@ async fn main() -> std::io::Result<()> {
     // Initialize RabbitMQ client
     let client = AmqpClient::new(
         "amqp://admin:password@localhost:5672".to_string(),
+        "actix-web".to_string(),
         10,
     )
     .expect("Failed to create RabbitMQ client");

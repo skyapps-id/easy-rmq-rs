@@ -33,7 +33,7 @@ fn handle_order_plain(data: &[u8]) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let client = AmqpClient::new("amqp://admin:password@localhost:5672".to_string(), 10)?;
+    let client = AmqpClient::new("amqp://admin:password@localhost:5672".to_string(), "di-subscriber".to_string(), 10)?;
     let pool = client.channel_pool();
 
     let email_service = Data::new(EmailService::new("smtp.gmail.com:587".to_string()));

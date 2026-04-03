@@ -35,6 +35,13 @@ No more separate methods like `publish_text()` or `publish_json()` - just use `p
 ## Configuration
 
 ```rust
+// Create RabbitMQ client with connection name
+let client = AmqpClient::new(
+    "amqp://admin:password@localhost:5672".to_string(),
+    "actix-web".to_string(),  // connection name (visible in RabbitMQ Manager)
+    10,                        // max pool size
+)?;
+
 // Publisher pre-configured with exchange
 let publisher = client.publisher()
     .with_exchange("order.events.v1");

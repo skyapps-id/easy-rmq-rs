@@ -49,7 +49,7 @@ fn handle_log_event(data: &[u8]) -> Result<()> {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let client = AmqpClient::new("amqp://admin:password@localhost:5672".to_string(), 10)?;
+    let client = AmqpClient::new("amqp://admin:password@localhost:5672".to_string(), "subscriber".to_string(), 10)?;
 
     println!("📝 Setting up AMQP subscribers...\n");
 

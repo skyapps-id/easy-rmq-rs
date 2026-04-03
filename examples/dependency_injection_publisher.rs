@@ -5,7 +5,7 @@ use std::time::Duration;
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let client = AmqpClient::new("amqp://admin:password@localhost:5672".to_string(), 10)?;
+    let client = AmqpClient::new("amqp://admin:password@localhost:5672".to_string(), "di-publisher".to_string(), 10)?;
 
     println!("📤 Starting dependency injection publishers...\n");
 

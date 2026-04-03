@@ -7,11 +7,12 @@ use tokio::sync::Mutex;
 
 pub struct AmqpConnectionManager {
     uri: String,
+    connection_name: String,
 }
 
 impl AmqpConnectionManager {
-    pub fn new(uri: String) -> Self {
-        Self { uri }
+    pub fn new(uri: String, connection_name: String) -> Self {
+        Self { uri, connection_name }
     }
 }
 
@@ -21,8 +22,10 @@ impl Manager for AmqpConnectionManager {
 
     fn create(&self) -> impl Future<Output = std::result::Result<Self::Type, Self::Error>> + Send {
         let uri = self.uri.clone();
+        let connection_name = self.connection_name.clone();
         async move {
-            let opts = ConnectionProperties::default();
+            let opts = ConnectionProperties::default()
+                .with_connection_name(connection_name.clone().into());
 
             Connection::connect(&uri, opts).await
         }
@@ -44,8 +47,8 @@ impl Manager for AmqpConnectionManager {
 
 pub type AmqpPool = Pool<AmqpConnectionManager>;
 
-pub fn create_pool(uri: String, max_size: usize) -> Result<AmqpPool> {
-    let manager = AmqpConnectionManager::new(uri);
+pub fn create_pool(uri: String, connection_name: String, max_size: usize) -> Result<AmqpPool> {
+    let manager = AmqpConnectionManager::new(uri, connection_name);
     let pool = Pool::builder(manager)
         .max_size(max_size)
         .build()
