@@ -7,6 +7,8 @@ use crate::{
 };
 use futures::StreamExt;
 use lapin::{Consumer, ExchangeKind, options::*, types::AMQPValue, types::FieldTable};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -299,7 +301,7 @@ impl Subscriber {
 
     pub async fn consume<F>(&self, queue: &str, handler: F) -> Result<()>
     where
-        F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
+        F: Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>> + Send + Sync + 'static,
     {
         self.ensure_queue(queue).await?;
 
@@ -326,7 +328,7 @@ impl Subscriber {
         retry_queue: Option<String>,
     ) -> Result<()>
     where
-        F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
+        F: Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>> + Send + Sync + 'static,
     {
         let channel = self.channel_pool.get_channel().await?;
 
@@ -360,7 +362,7 @@ impl Subscriber {
         spawner: &SpawnFn,
     ) -> Result<()>
     where
-        F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
+        F: Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>> + Send + Sync + 'static,
     {
         let mut handles = Vec::new();
         let handler = Arc::new(handler);
@@ -406,7 +408,7 @@ impl Subscriber {
         worker_id: u16,
     ) -> Result<()>
     where
-        F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
+        F: Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>> + Send + Sync + 'static,
     {
         let channel = subscriber.channel_pool.get_channel().await?;
 
@@ -461,7 +463,7 @@ impl Subscriber {
         main_queue: &str,
     ) -> Result<()>
     where
-        F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
+        F: Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>> + Send + Sync + 'static,
     {
         let max_retries = self.retry_max_retries.unwrap_or(0);
         let handler = Arc::new(handler);
@@ -480,7 +482,7 @@ impl Subscriber {
 
     async fn process_messages_static<F>(config: ProcessMessageConfig<F>) -> Result<()>
     where
-        F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
+        F: Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>> + Send + Sync + 'static,
     {
         let ProcessMessageConfig {
             mut consumer,
@@ -510,7 +512,7 @@ impl Subscriber {
                     let process_future = async move {
                         crate::middleware::set_headers(headers.clone());
                         
-                        let handler_result = handler_clone(data.clone());
+                        let handler_result = handler_clone(data.clone()).await;
 
                         for middleware in &middlewares {
                             let _ = middleware.before(&data);
@@ -634,7 +636,7 @@ impl Subscriber {
 impl SubscribeBuilder {
     pub async fn build<F>(self, handler: F) -> Result<()>
     where
-        F: Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static,
+        F: Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>> + Send + Sync + 'static,
     {
         self.inner.ensure_exchange(&self.inner.exchange).await?;
         self.inner.ensure_queue(&self.queue).await?;

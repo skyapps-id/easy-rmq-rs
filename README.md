@@ -18,7 +18,7 @@ Rust AMQP library with connection pool, publisher, subscriber, and dependency in
 - **Handler DI**: Dependency injection for handlers with `Data<T>` wrapper
 - **Dependency Injection**: Support for trait-based DI pattern
 - **Type Safe**: Strong error handling with thiserror
-- **Async**: Full async support using tokio
+- **Async Handlers**: All message handlers must be async for optimal performance
 
 ## Installation
 
@@ -26,6 +26,25 @@ Rust AMQP library with connection pool, publisher, subscriber, and dependency in
 [dependencies]
 easy-rmq-rs = { path = "./easy-rmq-rs" }
 ```
+
+## Breaking Changes
+
+⚠️ **Version 2.0+**: All message handlers must be **async functions**. This change enables better performance and proper async/await support throughout the library.
+
+**Migration Guide:**
+```rust
+// Old (sync handlers - NO LONGER SUPPORTED)
+fn handle(data: Vec<u8>) -> Result<()> {
+    Ok(())
+}
+
+// New (async handlers - REQUIRED)
+async fn handle(data: Vec<u8>) -> Result<()> {
+    Ok(())
+}
+```
+
+All handler functions now receive `Vec<u8>` (owned) instead of `&[u8]` (borrowed) to support async execution.
 
 ## Quick Start
 
@@ -182,6 +201,8 @@ let pub6 = client.publisher().with_fanout("events");
 
 ### Subscriber with Worker Registry
 
+⚠️ **Important**: All handlers must be `async fn` and receive `Vec<u8>` (owned bytes).
+
 Use `SubscriberRegistry` to manage multiple workers:
 
 ```rust
@@ -226,13 +247,13 @@ async fn main() -> easy_rmq_rs::Result<()> {
     Ok(())
 }
 
-fn handle_order_event(data: Vec<u8>) -> easy_rmq_rs::Result<()> {
+async fn handle_order_event(data: Vec<u8>) -> easy_rmq_rs::Result<()> {
     let msg = String::from_utf8_lossy(&data);
     println!("📦 Order: {}", msg);
     Ok(())
 }
 
-fn handle_log_event(data: Vec<u8>) -> easy_rmq_rs::Result<()> {
+async fn handle_log_event(data: Vec<u8>) -> easy_rmq_rs::Result<()> {
     let msg = String::from_utf8_lossy(&data);
     println!("📊 Log: {}", msg);
     Ok(())
@@ -550,7 +571,7 @@ pub fn extract_trace_id() -> Option<String> {
         })
 }
 
-fn handle_event(data: Vec<u8>) -> Result<()> {
+async fn handle_event(data: Vec<u8>) -> Result<()> {
     let trace_id = extract_trace_id().unwrap_or_else(|| "unknown".to_string());
     tracing::info!("Processing message - trace-id: {}", trace_id);
     
@@ -631,6 +652,8 @@ This library supports two types of dependency injection:
 
 ### Handler DI with `Data<T>` Wrapper
 
+⚠️ **Important**: DI handlers must be `async fn` and receive `Vec<u8>` (owned bytes).
+
 Inject dependencies into message handlers using the `Data<T>` wrapper:
 
 ```rust
@@ -656,8 +679,8 @@ impl EmailService {
 }
 
 // Handler with dependency injection
-fn send_email(service: Data<EmailService>, data: &[u8]) -> easy_rmq_rs::Result<()> {
-    service.send_email(data)
+async fn send_email(service: Data<EmailService>, data: Vec<u8>) -> easy_rmq_rs::Result<()> {
+    service.send_email(&data)
 }
 
 #[tokio::main]
@@ -750,12 +773,12 @@ impl EmailService {
     }
 }
 
-fn send_email(service: Data<EmailService>, data: &[u8]) -> easy_rmq_rs::Result<()> {
-    service.send_email(data)
+async fn send_email(service: Data<EmailService>, data: Vec<u8>) -> easy_rmq_rs::Result<()> {
+    service.send_email(&data)
 }
 
-fn handle_order(data: &[u8]) -> easy_rmq_rs::Result<()> {
-    let msg = String::from_utf8_lossy(data);
+async fn handle_order(data: Vec<u8>) -> easy_rmq_rs::Result<()> {
+    let msg = String::from_utf8_lossy(&data);
     println!("📦 Processing order: {}", msg);
     Ok(())
 }

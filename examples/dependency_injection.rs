@@ -21,12 +21,12 @@ impl EmailService {
     }
 }
 
-fn send_email(service: Data<EmailService>, data: &[u8]) -> Result<()> {
-    service.send_email(data)
+async fn send_email(service: Data<EmailService>, data: Vec<u8>) -> Result<()> {
+    service.send_email(&data)
 }
 
-fn handle_order_plain(data: &[u8]) -> Result<()> {
-    let msg = String::from_utf8_lossy(data);
+async fn handle_order_plain(data: Vec<u8>) -> Result<()> {
+    let msg = String::from_utf8_lossy(&data);
     println!("📦 Processing order (no dependency): {}", msg);
     Ok(())
 }

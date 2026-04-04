@@ -105,17 +105,22 @@ where
         self
     }
 
-    pub fn build<F>(self, handler: F) -> BuiltWorker
+    pub fn build<F, Fut>(self, handler: F) -> BuiltWorker
     where
-        F: Fn(Data<T>, &[u8]) -> Result<()> + Send + Sync + 'static,
+        F: Fn(Data<T>, Vec<u8>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<()>> + Send + 'static,
     {
         let pool = self.builder.channel_pool.expect("Pool must be set with .pool()");
 
         let data = self.data.clone();
         let handler_arc = Arc::new(handler);
 
-        let wrapped_handler = move |payload: Vec<u8>| -> Result<()> {
-            handler_arc(Data(data.clone()), &payload)
+        let wrapped_handler = move |payload: Vec<u8>| -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>> {
+            let data = data.clone();
+            let handler = handler_arc.clone();
+            Box::pin(async move {
+                handler(Data(data), payload).await
+            })
         };
 
         let subscriber = Subscriber::new(pool, self.builder.exchange_kind.clone())
@@ -256,15 +261,19 @@ impl WorkerBuilder {
         }
     }
 
-    pub fn build<F>(self, handler: F) -> BuiltWorker
+    pub fn build<F, Fut>(self, handler: F) -> BuiltWorker
     where
-        F: Fn(&[u8]) -> Result<()> + Send + Sync + 'static,
+        F: Fn(Vec<u8>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<()>> + Send + 'static,
     {
         let pool = self.channel_pool.expect("Pool must be set with .pool()");
 
         let handler_arc = Arc::new(handler);
-        let wrapped_handler = move |payload: Vec<u8>| -> Result<()> {
-            handler_arc(&payload)
+        let wrapped_handler = move |payload: Vec<u8>| -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>> {
+            let handler = handler_arc.clone();
+            Box::pin(async move {
+                handler(payload).await
+            })
         };
 
         let subscriber = Subscriber::new(pool, self.exchange_kind.clone())

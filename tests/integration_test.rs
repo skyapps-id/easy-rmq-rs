@@ -64,7 +64,7 @@ fn test_single_active_consumer_method_chain() {
         .pool(pool)
         .queue("test.queue")
         .single_active_consumer(true)
-        .build(|_| Ok(()));
+        .build(|_| async { Ok(()) });
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn test_single_active_consumer_direct_builder() {
         .pool(pool)
         .queue("test.queue")
         .single_active_consumer(true)
-        .build(|_| Ok(()));
+        .build(|_| async { Ok(()) });
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn test_single_active_consumer_topic_builder() {
         .routing_key("test.routing.key")
         .queue("test.queue")
         .single_active_consumer(true)
-        .build(|_| Ok(()));
+        .build(|_| async { Ok(()) });
 }
 
 #[test]
@@ -125,5 +125,5 @@ fn test_single_active_consumer_fanout_builder() {
         .pool(pool)
         .queue("test.queue")
         .single_active_consumer(true)
-        .build(|_| Ok(()));
+        .build(|_| async { Ok(()) });
 }

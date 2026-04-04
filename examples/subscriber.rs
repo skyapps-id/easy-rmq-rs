@@ -6,13 +6,13 @@ use tokio::signal;
 mod common;
 use common::middleware::{logging, metrics, tracing};
 
-fn handle_order_event(data: &[u8]) -> Result<()> {
-    let msg = String::from_utf8_lossy(data);
+async fn handle_order_event(data: Vec<u8>) -> Result<()> {
+    let msg = String::from_utf8_lossy(&data);
     let event: serde_json::Value = serde_json::from_str(&msg)?;
 
     println!("📦 [Order] Event: {}", event);
 
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     let order_id = event["id"].as_str().unwrap_or("unknown");
     let total = event["total"].as_f64().unwrap_or(0.0);
@@ -23,8 +23,8 @@ fn handle_order_event(data: &[u8]) -> Result<()> {
     Err("Simulated processing error".into())
 }
 
-fn handle_stock_event(data: &[u8]) -> Result<()> {
-    let msg = String::from_utf8_lossy(data);
+async fn handle_stock_event(data: Vec<u8>) -> Result<()> {
+    let msg = String::from_utf8_lossy(&data);
     let event: serde_json::Value = serde_json::from_str(&msg)?;
 
     println!("📦 [Stock] Event: {}", event);
@@ -32,8 +32,8 @@ fn handle_stock_event(data: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn handle_log_event(data: &[u8]) -> Result<()> {
-    let msg = String::from_utf8_lossy(data);
+async fn handle_log_event(data: Vec<u8>) -> Result<()> {
+    let msg = String::from_utf8_lossy(&data);
     let log: serde_json::Value = serde_json::from_str(&msg)?;
 
     let level = log["level"].as_str().unwrap_or("INFO");

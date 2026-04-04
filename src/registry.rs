@@ -1,6 +1,8 @@
 use crate::{BuiltWorker, Result};
+use std::future::Future;
+use std::pin::Pin;
 
-pub type HandlerFn = Box<dyn Fn(Vec<u8>) -> Result<()> + Send + Sync + 'static>;
+pub type HandlerFn = Box<dyn Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>> + Send + Sync + 'static>;
 
 pub struct SubscriberRegistry {
     workers: Vec<BuiltWorker>,
